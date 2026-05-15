@@ -2,7 +2,7 @@
 
 ## Implementation Guide for Phase 1 + Phase 2
 
-**Version:** 3.3
+**Version:** 3.4
 **Status:** Review (incorporating open-source optimization recommendations)
 **Purpose:** Translate Requirements into Implementation
 
@@ -20,7 +20,8 @@ This document provides a technical implementation path for Phase 1 (Data Collect
 4. **Community-Friendly:** Simple installation, minimal maintenance
 5. **Vendor-Agnostic:** Avoid lock-in where possible
 6. **Regulatory-Compliant:** Meet German CE, BSI, VDE, GDPR, §14a EnWG requirements
-7. **Economically Fair:** Optimization must NOT disadvantage any household type (SUBORDINATE to #1)
+7. **Separation of Concerns:** Central system sends constraints and recommendations; households decide how to comply autonomously. Direct control is last-resort only.
+8. **Economically Fair:** Optimization must NOT disadvantage any household type (SUBORDINATE to #1)
 
 ---
 
@@ -297,13 +298,17 @@ Control devices (wallbox, PV inverter, battery BMS, smart plugs) are located ins
 
 ### 3.2.1 MQTT Topic Hierarchy
 
-All local controllers communicate with the central server via a standardized MQTT topic structure:
+All local controllers communicate with the central server via a standardized MQTT topic structure. Three message types exist: **constraints** (hard limits), **recommendations** (suggestions), and **commands** (direct control, fallback only).
+
+**Topic patterns:**
 
 ```
-lem-netz/house/<household_id>/sensor/<device>/<metric>     # Data from house to central
-lem-netz/house/<household_id>/command/<action>              # Commands from central to house
-lem-netz/house/<household_id>/status/<action>               # Confirmations from house to central
-lem-netz/house/<household_id>/heartbeat                     # Connectivity alive signal
+lem-netz/house/<household_id>/sensor/<device>/<metric>       # Data from house to central
+lem-netz/house/<household_id>/constraint/<type>               # Hard limits from central to house
+lem-netz/house/<household_id>/recommendation/<type>           # Non-binding suggestions from central
+lem-netz/house/<household_id>/command/<action>                # Direct commands (fallback only)
+lem-netz/house/<household_id>/status/<action>                 # Confirmations from house to central
+lem-netz/house/<household_id>/heartbeat                       # Connectivity alive signal
 ```
 
 **Example topics:**
@@ -313,8 +318,13 @@ lem-netz/house/<household_id>/heartbeat                     # Connectivity alive
 | `lem-netz/house/1/sensor/wallbox/power` | House → Central | `{"value": 4500, "unit": "W"}` | Wallbox current power consumption |
 | `lem-netz/house/1/sensor/pv/production` | House → Central | `{"value": 3200, "unit": "W"}` | PV current production |
 | `lem-netz/house/1/sensor/battery/soc` | House → Central | `{"value": 65, "unit": "%"}` | Battery state of charge |
-| `lem-netz/house/1/command/shed` | Central → House | `{"reason": "transformer_overload", "severity": "critical"}` | Shed non-essential loads |
+| `lem-netz/house/1/constraint/max_power` | Central → House | `{"value": 5000, "unit": "W", "valid_from": "...", "valid_until": "..."}` | Hard limit on total household import power |
+| `lem-netz/house/1/constraint/max_export` | Central → House | `{"value": 3000, "unit": "W"}` | Hard limit on grid feed-in (PV, battery discharge) |
+| `lem-netz/house/1/recommendation/charge_window` | Central → House | `{"start": "14:00", "end": "16:00", "price": 0.25}` | Suggested EV charging period |
+| `lem-netz/house/1/command/shed` | Central → House | `{"reason": "transformer_overload", "severity": "critical"}` | Shed non-essential loads (emergency fallback only) |
+| `lem-netz/house/1/command/restore` | Central → House | `{"reason": "load_recovered"}` | Restore previously shed loads |
 | `lem-netz/house/1/status/shed` | House → Central | `{"status": "executed", "loads_shed": ["wallbox", "smart_plug_1"]}` | Shed confirmation |
+| `lem-netz/house/1/status/compliance` | House → Central | `{"constraint": "max_power", "value": 4800, "compliant": true}` | Compliance report to watchdog |
 | `lem-netz/house/1/heartbeat` | House → Central | `{"uptime": 3600, "tier": "2"}` | Alive signal |
 
 ### 3.2.2 Local Controller Tiers
@@ -327,12 +337,21 @@ Different households have different needs and existing equipment. The architectu
 | **2** | Raspberry Pi Zero 2W + Python/Node-RED agent | €35-55 | Modbus TCP/RTU, OCPP client, REST APIs, WiFi MQTT | Hours to days (SD card) | Full integration with PV, battery, wallbox, multiple devices |
 | **3** | Existing Home Assistant instance | €0 (already present) | All HA integrations, Remote HA or MQTT bridge | Full (HA database) | Households already running HA |
 
+**Constraint handling per tier:**
+
+| Tier | How Constraints Are Enforced | Local Optimization Capability |
+|------|------------------------------|-------------------------------|
+| **1** (ESP32) | Hard limit: if `constraint/max_power = 5000W` exceeded, turns off non-essential loads in fixed priority order (plug first, wallbox second). Simple threshold enforcement — no scheduling. | None — fixed priority only |
+| **2** (RPi Zero 2W) | Intelligent enforcement: receives constraint and decides locally *how* to meet it. Can delay EV charging by 1h, reduce heat pump temperature, or discharge battery — whichever best fits household preferences. | Can run local optimizer (Node-RED, simple Python scheduler) |
+| **3** (Existing HA) | Fully integrated: constraint becomes a condition in local HA automations. Household defines its own rules for how to respect the limit while maximizing comfort/cost savings. | Full HA automations + local add-ons |
+
 **Tier 1 (ESP32/ESPHome):**
 - Runs ESPHome firmware — connects to central HA via native API or MQTT
 - Modbus RTU via UART + MAX3485 transceiver for wallbox/inverter
 - Simple YAML configuration, no coding required
 - Power: USB 5V (can share with iOKE868 power supply)
 - Security: MQTT over TLS, unique device authentication per house
+- Constraint enforcement via ESPHome lambda: compare current power sum against `constraint/max_power` value, shed loads accordingly
 
 **Tier 2 (RPi Zero 2W):**
 - Runs a lightweight Python agent or Node-RED flows
@@ -340,12 +359,15 @@ Different households have different needs and existing equipment. The architectu
 - Can run EVCC as OCPP client for wallbox control
 - Local SQLite database buffers all readings when MQTT link is down
 - Periodic heartbeat confirms connectivity; watchdog checks time since last heartbeat
+- Constraint handler: Python callback on `constraint/#` topics that adjusts local device schedules
+- Compliance reporter: periodically publishes current load against limit to `status/compliance`
 
 **Tier 3 (Existing HA):**
 - Use "Remote Home-Assistant" add-on to bridge entities to central HA
 - Or: MQTT auto-discovery — local HA publishes all device entities to central MQTT broker
 - Zero additional hardware cost
 - Requires household to already run HA competently
+- Constraint handling: HA automation triggers on `constraint/max_power` changes, adjusts device states accordingly
 
 ### 3.2.3 Backhaul Options
 
@@ -371,6 +393,63 @@ The link between the local controller and the central MQTT broker depends on the
 | Battery BMS | — | ✓ Modbus or REST | ✓ Any HA integration |
 | Smart Plug (Shelly) | ✓ Shelly local HTTP API | ✓ Shelly local HTTP API | ✓ Shelly integration |
 | Smart Plug (MQTT) | ✓ ESPHome native | ✓ Node-RED / Python | ✓ HA MQTT integration |
+
+### 3.2.5 Control Philosophy — Separation of Concerns
+
+The system uses a **two-tier control model**: constraints and recommendations are the primary mode; direct commands are the emergency fallback.
+
+**Why constraints over commands:**
+- **Household autonomy**: Each household decides how to meet limits based on its own priorities (comfort, cost, PV yield)
+- **Economic fairness (FR20)**: Different pricing models (EEG, dynamic, §14a) require different optimization strategies — only the household knows its tariff
+- **Privacy**: Central system does not need to know which devices are in each house or their schedules
+- **Resilience**: A household can continue operating normally even if the MQTT link to central is temporarily lost — it stays within the last known constraint
+- **Future-proofing**: New device types can be added at the household level without central coordination
+
+**Responsibility split:**
+
+| Concern | Central System | Household System |
+|---------|---------------|------------------|
+| Transformer safety | Monitors virtual transformer, calculates fair-share limits per household | Respects `max_power` and `max_export` constraints |
+| Load optimization | Broadcasts price signals and recommended charge windows | Decides device schedules within constraints (or ignores recommendations) |
+| Compliance enforcement | Checks if household stays within limits; escalates if violated | Reports compliance status periodically |
+| Emergency shutdown | Issues direct `command/shed` only as last resort | Local controller always listens for and executes shed commands |
+| Local preferences | Unknown — does not track household devices or behavior | Full knowledge of devices, tariffs, comfort requirements |
+
+**Normal operation flow (constraint mode):**
+
+```
+Central                                                   Household
+   │                                                          │
+   ├─ constraint/max_power = 5000W ──────────────────────────►│
+   │                                                          ├─ Decides: "I have 5kW budget"
+   │                                                          │  → Run heat pump at 2kW
+   │                                                          │  → Charge EV at 3kW
+   │                                                          │  (within limit)
+   │◄── sensor/wallbox/power = 3000W ─────────────────────────┤
+   │◄── sensor/plug/power = 2000W ────────────────────────────┤
+   │◄── status/compliance = {compliant: true} ────────────────┤
+   │                                                          │
+```
+
+**Emergency flow (command fallback):**
+
+```
+Central                                                   Household
+   │                                                          │
+   ├─ constraint/max_power = 3000W ──────────────────────────►│  Step 1: tighten constraint
+   │◄── status/compliance = {compliant: true} ────────────────┤
+   │  (30s later — transformer still overloaded)               │
+   ├─ command/shed ──────────────────────────────────────────►│  Step 2: direct command
+   │◄── status/shed = {executed} ─────────────────────────────┤
+   │                                                          │
+```
+
+**Constraint priority order (when limits conflict):**
+
+1. **`command/shed`** — highest priority, must be executed immediately (transformer emergency)
+2. **`constraint/max_power`** — hard limit on total import, household must stay below
+3. **`constraint/max_export`** — hard limit on grid feed-in
+4. **`recommendation/*`** — non-binding, household may ignore based on local optimization
 
 ---
 
@@ -441,21 +520,89 @@ input_number:
 #### E.1 Integration Architecture
 
 ```
-┌─ HOUSEHOLD ────────────────────────────────────────┐
-│                                                     │
-│  Wallbox ──Modbus──┐                                │
-│  PV Inverter ─Modbus┤──→ Local Controller ──MQTT──→ Central HA
-│  Battery ───Modbus──┤       (Tier 1/2/3)    (TLS)   │
-│  Smart Plug ──WiFi──┘                                │
-│                                                     │
-│  Local Controller handles:                          │
-│  • All protocol translation (Modbus, OCPP, REST)    │
-│  • All local device discovery and polling            │
-│  • Data normalization to MQTT topic schema           │
-│  • Local execution of shed/control commands           │
-│  • Data buffering during network outages              │
-└─────────────────────────────────────────────────────┘
+┌─ HOUSEHOLD ─────────────────────────────────────────────────────┐
+│                                                                  │
+│  Wallbox ──Modbus──┐                                             │
+│  PV Inverter ─Modbus┤──→ Local Controller ──MQTT──→ Central HA  │
+│  Battery ───Modbus──┤       (Tier 1/2/3)    (TLS)               │
+│  Smart Plug ──WiFi──┘                                             │
+│                                                                  │
+│  Local Controller handles:                                       │
+│  • All protocol translation (Modbus, OCPP, REST)                 │
+│  • All local device discovery and polling                         │
+│  • Data normalization to MQTT topic schema                        │
+│  • Constraint enforcement: stay within max_power/max_export      │
+│  • Recommendation processing: decide locally whether to follow   │
+│  • Local execution of shed commands (emergency fallback only)    │
+│  • Data buffering during network outages                          │
+│  • Compliance reporting: publish current status against limits   │
+└──────────────────────────────────────────────────────────────────┘
 ```
+
+#### E.1.1 Constraint and Recommendation Handling
+
+> **Primary mode:** The central system sends constraints (hard limits) and recommendations (suggestions). The local controller is responsible for staying within constraints while deciding autonomously how to use its available budget. Direct commands are only used in emergencies.
+
+**Constraint flow per device type:**
+
+| Constraint Topic | Applies To | Local Controller Action |
+|-----------------|------------|------------------------|
+| `constraint/max_power` | All devices (total household import) | Sum all device power; if approaching limit, reduce non-essential loads first |
+| `constraint/max_export` | PV inverter, battery | Limit grid feed-in by curtailing PV or stopping battery discharge |
+| `command/shed` | All protected devices | Immediate shutdown — emergency only, overrides all constraints |
+
+**Recommendation flow:**
+
+| Recommendation Topic | Meaning | Household Decision |
+|--------------------|---------|-------------------|
+| `recommendation/charge_window` | "Cheapest prices 14:00-16:00" | Tier 2/3: schedule EV charging accordingly. Tier 1: ignore (no scheduling ability). |
+| `recommendation/price_signal` | Current market price signal | Tier 2/3: use as input to local optimization. Tier 1: ignore. |
+
+**Local controller constraint enforcement examples per tier:**
+
+```
+Tier 1 (ESP32):
+  Subscribe: constraint/max_power
+  On update: if total_power > max_power, shed lowest-priority device
+  Logic:     "I have 5kW limit. Currently using 5.2kW. Turn off smart_plug_3."
+
+Tier 2 (RPi Zero):
+  Subscribe: constraint/max_power + recommendation/price_signal
+  On update: re-run local optimizer with new constraint
+  Logic:     "I have 5kW limit and prices peak at 18:00.
+              Option A: reduce EV from 11kW to 5kW, charge battery from grid.
+              Option B: delay EV until 22:00, use PV for battery.
+              → Pick Option B (better for household cost)."
+
+Tier 3 (Existing HA):
+  Subscribe: constraint/max_power
+  Trigger HA automation: "When max_power changes, adjust device schedules"
+  Full HA automation capabilities
+```
+
+**Compliance reporting (all tiers):**
+
+Each local controller periodically publishes its compliance status:
+
+```json
+topic: lem-netz/house/<id>/status/compliance
+payload: {
+  "constraint": "max_power",
+  "limit": 5000,
+  "current_load": 4800,
+  "compliant": true,
+  "devices": {
+    "wallbox": 3000,
+    "smart_plug_1": 1200,
+    "smart_plug_2": 600
+  }
+}
+```
+
+If a household is non-compliant (current_load > limit), the central watchdog can:
+1. Log warning
+2. Tighten constraint further
+3. If persistent: escalate to direct `command/shed`
 
 #### E.2 Wallbox/EV Charger Integration (on Local Controller)
 
@@ -477,13 +624,14 @@ input_number:
    | `lem-netz/house/<id>/sensor/wallbox/status` | `{"state": "charging", "phase_count": 3}` | On change |
    | `lem-netz/house/<id>/status/shed` | `{"status": "executed", "loads_shed": ["wallbox"]}` | On watchdog command |
 
-3. **Commands Received from Central MQTT**
+3. **Constraints and Commands Received from Central MQTT**
 
-   | Command Topic | Payload | Effect |
-   |--------------|---------|--------|
-   | `lem-netz/house/<id>/command/max_current` | `{"value": 10, "unit": "A"}` | Limit wallbox charging current |
-   | `lem-netz/house/<id>/command/charge_enable` | `{"enable": false}` | Stop/start charging |
-   | `lem-netz/house/<id>/command/shed` | `{"reason": "transformer_overload"}` | Shed wallbox immediately |
+   | Topic | Type | Payload | Local Controller Action |
+   |-------|------|---------|------------------------|
+   | `constraint/max_power` | Constraint | `{"value": 5000, "unit": "W"}` | Reduce wallbox current so total household stays below limit. Tier 1: hard-cut at threshold. Tier 2/3: smart reduction within local schedule. |
+   | `constraint/max_export` | Constraint | `{"value": 3000, "unit": "W"}` | Limit PV export or battery discharge to stay below feed-in cap |
+   | `recommendation/charge_window` | Recommendation | `{"start": "14:00", "end": "16:00"}` | Tier 2/3: schedule charging within window if beneficial. Tier 1: ignore. |
+   | `command/shed` | Fallback command | `{"reason": "transformer_overload", "priority": 1}` | Immediately stop wallbox charging regardless of local preferences. Only used after constraint escalation fails. |
 
 4. **OCPP Compatibility Warning**
    - Some wallbox manufacturers have OCPP implementation issues:
@@ -509,12 +657,14 @@ All smart plug integration runs on the local controller, which reads power data 
 
 2. **Data Flow**
    - **Sensor data**: Local controller polls Shelly at `http://<shelly-ip>/rpc/Switch.GetStatus` → publishes to `lem-netz/house/<id>/sensor/plug/<name>/power`
-   - **Control**: Central publishes `lem-netz/house/<id>/command/plug/<name>/set` → local controller sends HTTP POST to Shelly → confirms via `lem-netz/house/<id>/status/plug/<name>`
+   - **Constraint**: Central publishes `constraint/max_power` → local controller sums all plug power, turns off lowest-priority plugs if approaching limit
+   - **Control** (fallback): Central publishes `command/shed` → local controller sends HTTP POST to Shelly → confirms via `lem-netz/house/<id>/status/plug/<name>`
 
 3. **Configuration**
    - Assign static IP to each smart plug via DHCP reservation
    - Register plug MAC address in local controller config
-   - Tag each plug with `transformer_protected: true` in controller config for watchdog priority
+   - Assign each plug a shed priority (1 = shed first, 3 = shed last) for constraint enforcement
+   - Tag each plug with `transformer_protected: true` in controller config for watchdog
 
 #### E.4 PV System Integration (on Local Controller)
 
@@ -535,6 +685,10 @@ All smart plug integration runs on the local controller, which reads power data 
    | `lem-netz/house/<id>/sensor/pv/daily_yield` | `{"value": 14.2, "unit": "kWh"}` |
    | `lem-netz/house/<id>/sensor/pv/total_yield` | `{"value": 4520, "unit": "kWh"}` |
 
+3. **Constraints**
+   - `constraint/max_export`: If set, local controller must limit PV feed-in. Tier 1 can only disconnect inverter (on/off). Tier 2/3 can set power curtailment via Modbus register if inverter supports it.
+   - `recommendation/sell_signal`: Central suggests "export now" (high prices) — Tier 2/3 may increase feed-in from battery if profitable.
+
 #### E.5 Battery Storage Integration (on Local Controller)
 
 1. **Per Tier**
@@ -554,98 +708,115 @@ All smart plug integration runs on the local controller, which reads power data 
    | `lem-netz/house/<id>/sensor/battery/power` | `{"value": -1500, "unit": "W"}` (negative = charging) |
    | `lem-netz/house/<id>/sensor/battery/status` | `{"state": "discharging"}` |
 
+3. **Constraints**
+   - `constraint/max_export`: Limit battery discharge to grid. Tier 2/3 can adjust charge/discharge setpoints.
+   - `constraint/max_power`: Total household limit — battery can help by discharging to cover load instead of importing from grid.
+   - `recommendation/charge_window`: Tier 2/3 can schedule battery charging during low-price periods to reduce cost.
+
 ### Phase F: Revenue-Aware Optimization
 
 #### F.0 INFRASTRUCTURE SAFETY WATCHDOG (CRITICAL - IMPLEMENT FIRST)
 
 > **IMPLEMENTATION ORDER:** Infrastructure safety MUST be implemented BEFORE economic optimization. The watchdog is the enforcement mechanism.
 
-The virtual transformer YAML sensor from Phase C provides monitoring. Enforcement uses **MQTT shed commands** to per-household local controllers, which execute the physical load shedding locally.
+The watchdog operates in **two stages**: first by tightening constraints (allowing households to self-regulate), then by direct shed commands only if the constraint tightening does not resolve the overload within a timeout.
 
-**Architecture:**
+**Two-stage architecture:**
 ```
-Central HA detects overload ──MQTT──→ lem-netz/house/<id>/command/shed
-                                           │
-                                           ▼
-                                   Local Controller
-                                    (Tier 1/2/3)
-                                           │
-                              ┌────────────┴────────────┐
-                              ▼                         ▼
-                       Wallbox set to 0A          Smart Plug turned off
-                       (Modbus register write)    (HTTP POST /relay/0)
+Central HA detects overload (80%)
+  │
+  ├─ Stage 1: constraint/max_power = reduced_limit ──► Household autonomously complies
+  │     Wait 30s for compliance
+  │
+  ├─ Stage 2: command/shed ──► Immediate load shed
+  │     (only if still overloaded after Stage 1)
+  │
+  └─ Recovery: restore constraints → restore loads
 ```
 
-#### F.0.1 Watchdog Command Flow
+#### F.0.1 Watchdog Stages
 
-1. Central HA monitors `sensor.virtual_transformer` (sum of all household power readings)
-2. When threshold exceeded (80%), central HA publishes shed commands via MQTT
-3. Shed order: **non-essential plugs first → wallbox → battery export**
-4. Each local controller acknowledges execution via status topic
-5. Central HA checks acknowledgements — if transformer still overloaded, continues shedding next tier
-6. On recovery (60%), publishes re-enable commands in reverse order
+**Stage 1 — Constraint Tightening (normal response):**
 
-#### F.0.2 Priority Shed Configuration (on Central HA)
+| Step | Action | Detail |
+|------|--------|--------|
+| 1.1 | Detect threshold | `sensor.virtual_transformer` exceeds 80% (8000W for 10kVA) |
+| 1.2 | Calculate fair share | Reduce each household's `max_power` proportionally: e.g., total load 10kW across 10 houses → each gets 800W instead of 1000W |
+| 1.3 | Publish constraint | `lem-netz/house/<id>/constraint/max_power` = new limit per household |
+| 1.4 | Wait for compliance | 30-second window for households to self-regulate |
+| 1.5 | Check compliance | Sum reported loads from `status/compliance` topics. If total < 80% → resolved. If still > 80% → proceed to Stage 2. |
 
-Each household registers its devices with a shed priority in central HA's configuration:
+**Stage 2 — Direct Shed (escalation, only if Stage 1 fails):**
+
+| Step | Action | Detail |
+|------|--------|--------|
+| 2.1 | Identify non-compliant | Households whose `status/compliance` shows current_load > limit |
+| 2.2 | Send shed commands | `lem-netz/house/<id>/command/shed` to non-compliant households |
+| 2.3 | Acknowledge | Local controllers confirm execution via `status/shed` |
+| 2.4 | Verify resolution | If transformer still > 80%, widen shed to all households, not just non-compliant |
+| 2.5 | Alert | Create persistent notification and log event |
+
+#### F.0.2 Household Compliance Configuration
 
 ```yaml
-# Central HA configuration: Household shed priorities
+# Central HA: Household power limit configuration
 lem_netz:
+  transformer:
+    max_power: 10000           # Transformer rating (VA)
+    warning_threshold: 0.8      # 80% — trigger Stage 1
+    critical_threshold: 0.95    # 95% — trigger Stage 2 immediately (skip Stage 1)
+    recovery_threshold: 0.6     # 60% — restore loads
+    stage1_timeout: 30          # Seconds to wait before escalating to Stage 2
+
   households:
     1:
       name: "Household 1"
+      base_allocation: 2000     # Normal max_power (W)
       devices:
         - id: wallbox
           type: ev_charger
-          shed_priority: 2   # shed second
           max_power: 11000
         - id: plug_pool_pump
           type: smart_plug
-          shed_priority: 1   # shed first
           max_power: 1500
         - id: plug_heater
           type: smart_plug
-          shed_priority: 1
           max_power: 2000
-    2:
-      name: "Household 2"
-      devices:
-        - id: wallbox
-          type: ev_charger
-          shed_priority: 2
-          max_power: 11000
 ```
 
 #### F.0.3 Watchdog Automation (Central HA)
 
 ```yaml
-# Watchdog: Publish MQTT shed commands when transformer exceeds 80%
+# Stage 1: Tighten constraints when transformer exceeds 80%
 automation:
-  - alias: "Transformer Overload Protection"
+  - alias: "Transformer Stage 1 — Constraint Tightening"
     trigger:
       - platform: numeric_state
         entity_id: sensor.virtual_transformer
-        above: 8000  # 80% of 10kVA transformer
+        above: 8000  # 80% of 10kVA
     mode: single
     action:
-      # Step 1: Shed all priority-1 loads (non-essential plugs)
+      # Calculate reduction factor
+      - variables:
+          overload_factor: "{{ 8000 / states('sensor.virtual_transformer') | float }}"
+      
+      # Publish reduced max_power to each household
       - service: mqtt.publish
         data:
-          topic: "lem-netz/house/1/command/shed"
-          payload: '{"priority": 1, "reason": "transformer_overload", "timestamp": "{{ now() }}"}'
+          topic: "lem-netz/house/1/constraint/max_power"
+          payload: '{"value": {{ (2000 * overload_factor) | int }}, "unit": "W", "reason": "transformer_overload", "valid_until": "{{ (now() + timedelta(minutes=15)).isoformat() }}"}'
           qos: 2
       - service: mqtt.publish
         data:
-          topic: "lem-netz/house/2/command/shed"
-          payload: '{"priority": 1, "reason": "transformer_overload", "timestamp": "{{ now() }}"}'
+          topic: "lem-netz/house/2/constraint/max_power"
+          payload: '{"value": {{ (2000 * overload_factor) | int }}, "unit": "W", "reason": "transformer_overload", "valid_until": "..."}'
           qos: 2
-      # ... repeat for all households ...
-      
-      # Step 2: Wait 10s for acknowledgement, then check if still overloaded
-      - delay: "00:00:10"
-      
-      # Step 3: If still overloaded, shed priority-2 loads (wallboxes)
+      # ... repeat per household ...
+
+      # Wait for households to self-regulate
+      - delay: "00:00:30"
+
+      # Check if resolved — if not, escalate to Stage 2
       - if:
           - condition: numeric_state
             entity_id: sensor.virtual_transformer
@@ -653,104 +824,177 @@ automation:
         then:
           - service: mqtt.publish
             data:
-              topic: "lem-netz/house/1/command/shed"
-              payload: '{"priority": 2, "reason": "transformer_overload", "timestamp": "{{ now() }}"}'
+              topic: "lem-netz/watchdog/escalation"
+              payload: '{"stage": 2, "reason": "constraint_tightening_insufficient"}'
               qos: 2
-          - service: mqtt.publish
-            data:
-              topic: "lem-netz/house/2/command/shed"
-              payload: '{"priority": 2, "reason": "transformer_overload", "timestamp": "{{ now() }}"}'
-              qos: 2
-          # ... 
-      
-      # Step 4: Alert
-      - service: persistent_notification.create
-        data:
-          title: "⚠ Transformer Overload"
-          message: "Virtual transformer exceeded 80%. Shed commands issued to local controllers."
 ```
 
-**Load Recovery (when transformer drops below 60%):**
+```yaml
+# Stage 2: Direct shed commands (triggered by escalation or 95% threshold)
+automation:
+  - alias: "Transformer Stage 2 — Direct Shed"
+    trigger:
+      - platform: numeric_state
+        entity_id: sensor.virtual_transformer
+        above: 9500  # 95% — emergency, skip Stage 1
+      - platform: mqtt
+        topic: "lem-netz/watchdog/escalation"
+    mode: single
+    action:
+      # Send direct shed to all households
+      - repeat:
+          for_each: ["lem-netz/house/1/command/shed", "lem-netz/house/2/command/shed"]
+          sequence:
+            - service: mqtt.publish
+              data:
+                topic: "{{ repeat.item }}"
+                payload: '{"priority": "all", "reason": "transformer_critical"}'
+                qos: 2
+
+      - service: persistent_notification.create
+        data:
+          title: "⚠ Critical Transformer Overload"
+          message: "Transformer exceeded 95%. Direct shed commands issued to all households."
+
+      # Log for audit
+      - service: system_log.write
+        data:
+          message: "WATCHDOG: Stage 2 shed triggered at {{ states('sensor.virtual_transformer') }}W"
+          level: warning
+```
+
+**Load Recovery (two-stage, reverse order):**
 
 ```yaml
+automation:
   - alias: "Transformer Load Recovery"
     trigger:
       - platform: numeric_state
         entity_id: sensor.virtual_transformer
-        below: 6000  # 60% — hysteresis prevents oscillation
+        below: 6000  # 60% — hysteresis
     mode: single
     action:
-      # Re-enable loads in reverse priority order
+      # Stage 1: Restore constraints to normal allocation
+      - service: mqtt.publish
+        data:
+          topic: "lem-netz/house/1/constraint/max_power"
+          payload: '{"value": 2000, "unit": "W", "reason": "load_recovered"}'
+          qos: 2
+      - service: mqtt.publish
+        data:
+          topic: "lem-netz/house/2/constraint/max_power"
+          payload: '{"value": 2000, "unit": "W", "reason": "load_recovered"}'
+          qos: 2
+      # ... repeat per household ...
+
+      # Stage 2: Restore any previously shed loads
+      - delay: "00:00:05"
       - service: mqtt.publish
         data:
           topic: "lem-netz/house/1/command/restore"
-          payload: '{"reason": "load_recovered", "timestamp": "{{ now() }}"}'
+          payload: '{"reason": "load_recovered"}'
           qos: 2
       - service: mqtt.publish
         data:
           topic: "lem-netz/house/2/command/restore"
-          payload: '{"reason": "load_recovered", "timestamp": "{{ now() }}"}'
+          payload: '{"reason": "load_recovered"}'
           qos: 2
-      # ...
 ```
 
-#### F.0.4 Local Controller Shed Handler (on each local controller)
+#### F.0.4 Local Controller Handler (on each local controller)
 
-The local controller subscribes to `lem-netz/house/<id>/command/#` and executes shedding locally:
+The local controller subscribes to both `constraint/#` and `command/#` topics:
 
-**Tier 1 (ESP32/ESPHome) example:**
-```yaml
-# ESPHome: MQTT shed command handler
-api:
-  on_mqtt_message:
-    - topic: lem-netz/house/1/command/shed
-      then:
-        - lambda: |-
-            // Parse JSON payload, extract priority
-            // Priority 1: turn off smart plugs
-            // Priority 2: set wallbox current to 0A
-            if (x.contains("priority\": 1")) {
-              id(smart_plug_1).turn_off();
-            } else if (x.contains("priority\": 2")) {
-              // Write 0 to wallbox Modbus register 1000
-              id(wallbox_modbus).write_register(1000, 0);
-            }
-        - mqtt.publish:
-            topic: lem-netz/house/1/status/shed
-            payload: '{"status": "executed", "priority": 1, "loads_shed": ["smart_plug_1"]}'
-            qos: 2
-```
+**Constraint handler (all tiers, primary mode):**
 
-**Tier 2 (RPi Zero / Python agent) example:**
 ```python
-# Python MQTT callback on local controller
+# Every local controller handles constraint/max_power updates
+def on_constraint_max_power(client, userdata, msg):
+    payload = json.loads(msg.payload)
+    new_limit = payload["value"]
+    
+    # Tier 1: simple threshold check and shed
+    if total_power() > new_limit:
+        shed_lowest_priority_device()
+    
+    # Tier 2/3: re-run local optimizer with new constraint
+    local_optimizer.set_max_power(new_limit)
+    local_optimizer.optimize()
+    
+    # Publish compliance
+    client.publish("lem-netz/house/1/status/compliance",
+        json.dumps({
+            "constraint": "max_power",
+            "limit": new_limit,
+            "current_load": total_power(),
+            "compliant": total_power() <= new_limit
+        }))
+
+client.subscribe("lem-netz/house/1/constraint/#")
+client.on_message = on_constraint_max_power
+```
+
+**Shed handler (all tiers, fallback):**
+
+```python
 def on_shed_command(client, userdata, msg):
     payload = json.loads(msg.payload)
-    priority = payload["priority"]
     
-    if priority >= 1:
-        # Shed non-essential plugs via HTTP
-        requests.get("http://192.168.1.50/rpc/Switch.Set?id=0&on=false")
-    
-    if priority >= 2:
-        # Set wallbox charge current to 0A via Modbus
-        modbus_client.write_register(1000, 0, unit=1)
+    # Immediate shutdown of all non-essential loads
+    for device in protected_devices:
+        device.turn_off()
     
     # Acknowledge
     client.publish("lem-netz/house/1/status/shed",
-        json.dumps({"status": "executed", "priority": priority}))
+        json.dumps({"status": "executed", "reason": payload.get("reason", "unknown")}))
 
-client.subscribe("lem-netz/house/1/command/#")
+client.subscribe("lem-netz/house/1/command/shed")
 client.on_message = on_shed_command
 ```
 
-#### F.0.5 Watchdog Failure Detection
+**Tier 1 (ESP32/ESPHome) full handler:**
 
-If a local controller does not acknowledge a shed command within 30 seconds:
-- Central HA marks the household as "unresponsive"
-- Retries via LoRaWAN downlink (if available) as fallback
-- Logs warning: "Household X unresponsive — check local controller connectivity"
-- The virtual transformer sensor continues monitoring; if still overloaded, remaining responsive households receive additional shed commands
+```yaml
+# ESPHome: Handle both constraint and command topics
+api:
+  on_mqtt_message:
+    - topic: lem-netz/house/1/constraint/max_power
+      then:
+        - lambda: |-
+            // Extract limit value from JSON
+            int new_limit = parse_json_value(x, "value");
+            id(current_max_power) = new_limit;
+            
+            // Check if current load exceeds limit
+            if (id(total_power) > new_limit) {
+              id(smart_plug_1).turn_off();
+            }
+        - mqtt.publish:
+            topic: lem-netz/house/1/status/compliance
+            payload: !lambda |-
+              return "{\"constraint\": \"max_power\", \"limit\": " + 
+                     String(id(current_max_power)) + 
+                     ", \"compliant\": " + 
+                     (id(total_power) <= id(current_max_power) ? "true" : "false") + "}";
+
+    - topic: lem-netz/house/1/command/shed
+      then:
+        - lambda: |-
+            id(smart_plug_1).turn_off();
+            id(wallbox_modbus).write_register(1000, 0);
+        - mqtt.publish:
+            topic: lem-netz/house/1/status/shed
+            payload: '{"status": "executed"}'
+```
+
+#### F.0.5 Watchdog Failure Detection and Audit
+
+| Situation | Detection | Action |
+|-----------|-----------|--------|
+| Household not publishing compliance | No `status/compliance` within 60s of constraint update | Mark as unresponsive; retry via LoRaWAN downlink; log warning |
+| Household non-compliant after Stage 1 | `status/compliance.compliant = false` after 30s timeout | Escalate to Stage 2 for that specific household |
+| Transformer still overloaded after full Stage 2 | `sensor.virtual_transformer` > 80% 10s after shed commands | Broaden shed to all households including non-protected devices |
+| Local controller crash | No heartbeat for >120s | Flag for maintenance; check power/WiFi at household |
 
 #### F.1 Recommended Optimization Tools (Phase 2)
 
@@ -1011,9 +1255,11 @@ Each component was evaluated against the following criteria:
 | Optimization causing loss | Wrong household config | Verify tariff type setting in HAEO/HA |
 | §14a not working | No Smart Meter (iMSys) | Requires iMSys installation for Module 3 |
 | Watchdog not firing | MQTT topic mismatch | Verify shed command topic matches local controller subscription |
-| Watchdog shed not executed | Local controller offline | Check heartbeat on `lem-netz/house/<id>/heartbeat`; if stale, check controller power/WiFi |
+| Watchdog Stage 1 not reducing load | Local controller not processing constraint | Subscribe to `lem-netz/house/<id>/status/compliance` to see if controller acknowledges constraint |
+| Watchdog Stage 2 shed not executed | Local controller offline | Check heartbeat on `lem-netz/house/<id>/heartbeat`; if stale, check controller power/WiFi |
 | False positive overload | Sensor drift | Check virtual transformer calculation — sum of all households |
 | Shed acknowledgement missing | Local controller crashed | Restart controller; check watchdog failure detection in Section F.0.5 |
+| Household exceeding constraint | Local optimizer malfunction | Verify local controller correctly sums device power and compares to `constraint/max_power`. Tier 1: check ESPHome lambda logic. Tier 2: check Python agent logs. |
 
 ### 8.3 Diagnostics
 
@@ -1083,5 +1329,5 @@ Each component was evaluated against the following criteria:
 
 *This document provides implementation guidance for Phase 1 and Phase 2. It supports the requirements specification by showing how to achieve the defined goals while maintaining economic fairness across all household types.*
 
-**Document Version:** 3.3
+**Document Version:** 3.4
 **Last Updated:** May 2026
