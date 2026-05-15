@@ -70,8 +70,7 @@ Based on the requirements, the following technical categories are needed:
 │         ▼                       ▼                       ▼          │
 │  ┌──────────────────┐    ┌──────────────────┐    ┌──────────────┐  │
 │  │ LOCAL CONTROLLER │    │ LOCAL CONTROLLER │    │LOCAL CONTR.  │  │
-│  │ (Tier 1/2/3)     │    │ (Tier 1/2/3)     │    │(Tier 1/2/3)  │  │
-│  │ ESP32 / RPi / HA │    │ ESP32 / RPi / HA │    │ESP32 / RPi   │  │
+│  │ (ESP32/ESPHome)  │    │ (ESP32/ESPHome)  │    │(ESP32/ESPHome)│  │
 │  └──────┬───────────┘    └──────┬───────────┘    └──────┬───────┘  │
 │         │    MQTT over          │    MQTT over          │   MQTT    │
 │         │    WiFi/Internet      │    WiFi/Internet      │   over    │
@@ -166,8 +165,8 @@ Based on the requirements, the following technical categories are needed:
    - Identify IR window location (usually left side)
 
 2. **Request Grid Operator PIN** (optional, for full data access)
-   - Contact your Netzbetreiber (grid operator)
-   - Request "Freischaltung der SML-Datenschnittstelle"
+   - Contact your grid operator (Netzbetreiber)
+   - Request activation of the SML data interface ("Freischaltung der SML-Datenschnittstelle")
    - PIN will be sent by mail/email
    - Enter PIN at meter to enable all OBIS values
 
@@ -192,40 +191,20 @@ Based on the requirements, the following technical categories are needed:
    - Enter AppKey from configuration
    - Device will join automatically
 
-#### B.3 Local Controller Setup (20-45 minutes, depends on tier)
+#### B.3 Local Controller Setup (20-45 minutes)
 
-1. **Select Tier (see Section 3.2.2)**
-   - **Tier 1 (ESP32):** For households with ≤2 Modbus devices, basic load shedding only
-   - **Tier 2 (RPi Zero 2W):** For households with PV, battery, wallbox requiring full integration
-   - **Tier 3 (Existing HA):** If household already runs Home Assistant
+All households use the same controller: ESP32 + ESPHome. See Section 3.2.2 for hardware details.
 
-2. **Tier 1 — ESP32/ESPHome Setup**
-   - Flash ESPHome firmware via USB (first-time) or OTA (updates)
-   - Connect MAX3485 RS485 transceiver: ESP32 GPIO16 (TX)→ RS485, GPIO17 (RX) ← RS485
-   - Wire RS485 A/B to wallbox or inverter Modbus terminals
-   - Write ESPHome YAML with Modbus client, MQTT topics per Section 3.2.1
-   - Configure WiFi SSID/password for household network
-   - Set MQTT broker address to central server IP (or DDNS hostname)
-   - Enable MQTT TLS with self-signed or Let's Encrypt certificate
-   - Test: verify sensor data appears on `lem-netz/house/<id>/sensor/...`
+**ESP32/ESPHome Setup:**
+- Flash ESPHome firmware via USB (first-time) or OTA (updates)
+- Connect MAX3485 RS485 transceiver: ESP32 GPIO16 (TX)→ RS485, GPIO17 (RX) ← RS485
+- Wire RS485 A/B to wallbox or inverter Modbus terminals
+- Write ESPHome YAML with Modbus client, MQTT topics per Section 3.2.1
+- Configure WiFi SSID/password for household network
+- Set MQTT broker address to central server IP
+- Test: verify sensor data appears on `lem-netz/house/<id>/sensor/...`
 
-3. **Tier 2 — RPi Zero 2W Setup**
-   - Flash Raspberry Pi OS Lite to SD card
-   - Install Node-RED or Python agent (pre-built script from central server repo)
-   - Optional: Connect RS485 USB dongle for Modbus RTU devices
-   - Configure `config.yaml` with:
-     - Household ID (1, 2, 3, ...)
-     - MQTT broker URL, port, TLS certificate path
-     - Device list (wallbox, PV, battery) with Modbus register maps or API endpoints
-   - Enable local buffering: SQLite database logs all readings
-   - Set up systemd service for auto-start
-   - Test: `mosquitto_pub` and `mosquitto_sub` to verify MQTT link
-
-4. **Tier 3 — Existing HA Bridge**
-   - Install "Remote Home-Assistant" add-on in local HA instance
-   - Configure connection to central HA URL and API token
-   - Select entities to expose to central
-   - OR: Install Mosquitto broker locally on existing HA and bridge to central broker
+For households with devices requiring OCPP or Modbus TCP (not supported on ESP32), see the alternative controller setup in Section 12.
 
 ### Phase C: Data Verification (30 minutes)
 
@@ -298,17 +277,14 @@ Control devices (wallbox, PV inverter, battery BMS, smart plugs) are located ins
 
 ### 3.2.1 MQTT Topic Hierarchy
 
-All local controllers communicate with the central server via a standardized MQTT topic structure. Three message types exist: **constraints** (hard limits), **recommendations** (suggestions), and **commands** (direct control, fallback only).
+The ESP32 communicates with the central server via a simple MQTT topic structure. Two message types exist: **sensor** data (house → central) and **control** commands (central → house).
 
 **Topic patterns:**
 
 ```
 lem-netz/house/<household_id>/sensor/<device>/<metric>       # Data from house to central
-lem-netz/house/<household_id>/constraint/<type>               # Hard limits from central to house
-lem-netz/house/<household_id>/recommendation/<type>           # Non-binding suggestions from central
-lem-netz/house/<household_id>/command/<action>                # Direct commands (fallback only)
-lem-netz/house/<household_id>/status/<action>                 # Confirmations from house to central
-lem-netz/house/<household_id>/heartbeat                       # Connectivity alive signal
+lem-netz/house/<household_id>/control/<type>                  # Limits/commands from central to house
+lem-netz/house/<household_id>/status/<type>                   # Confirmations from house to central
 ```
 
 **Example topics:**
@@ -318,138 +294,105 @@ lem-netz/house/<household_id>/heartbeat                       # Connectivity ali
 | `lem-netz/house/1/sensor/wallbox/power` | House → Central | `{"value": 4500, "unit": "W"}` | Wallbox current power consumption |
 | `lem-netz/house/1/sensor/pv/production` | House → Central | `{"value": 3200, "unit": "W"}` | PV current production |
 | `lem-netz/house/1/sensor/battery/soc` | House → Central | `{"value": 65, "unit": "%"}` | Battery state of charge |
-| `lem-netz/house/1/constraint/max_power` | Central → House | `{"value": 5000, "unit": "W", "valid_from": "...", "valid_until": "..."}` | Hard limit on total household import power |
-| `lem-netz/house/1/constraint/max_export` | Central → House | `{"value": 3000, "unit": "W"}` | Hard limit on grid feed-in (PV, battery discharge) |
-| `lem-netz/house/1/recommendation/charge_window` | Central → House | `{"start": "14:00", "end": "16:00", "price": 0.25}` | Suggested EV charging period |
-| `lem-netz/house/1/command/shed` | Central → House | `{"reason": "transformer_overload", "severity": "critical"}` | Shed non-essential loads (emergency fallback only) |
-| `lem-netz/house/1/command/restore` | Central → House | `{"reason": "load_recovered"}` | Restore previously shed loads |
+| `lem-netz/house/1/control/max_power` | Central → House | `{"value": 5000, "unit": "W"}` | Hard limit on total household import power |
+| `lem-netz/house/1/control/shed` | Central → House | `{"reason": "transformer_overload", "severity": "critical"}` | Shed non-essential loads (emergency fallback only) |
+| `lem-netz/house/1/control/restore` | Central → House | `{"reason": "load_recovered"}` | Restore previously shed loads |
 | `lem-netz/house/1/status/shed` | House → Central | `{"status": "executed", "loads_shed": ["wallbox", "smart_plug_1"]}` | Shed confirmation |
-| `lem-netz/house/1/status/compliance` | House → Central | `{"constraint": "max_power", "value": 4800, "compliant": true}` | Compliance report to watchdog |
-| `lem-netz/house/1/heartbeat` | House → Central | `{"uptime": 3600, "tier": "2"}` | Alive signal |
 
-### 3.2.2 Local Controller Tiers
+`control/max_power` replaces the previous `constraint/max_power`. The ESP32 enforces this hard limit locally by shedding or throttling devices. `control/shed` is the emergency fallback used only when limits alone cannot resolve an overload. No compliance reporting or heartbeat topics are needed — the central system verifies load by reading sensor data directly.
 
-Different households have different needs and existing equipment. The architecture supports three tiers:
+### 3.2.2 Local Controller (ESP32 + ESPHome)
 
-| Tier | Hardware | Cost (approx.) | Protocol Support | Data Buffering | Best For |
-|------|----------|----------------|-----------------|----------------|----------|
-| **1** | ESP32 + RS485 module + ESPHome | €15-25 | Modbus RTU (1-2 devices), WiFi MQTT | Limited (last values) | Basic load shedding, single wallbox or smart plug |
-| **2** | Raspberry Pi Zero 2W + Python/Node-RED agent | €35-55 | Modbus TCP/RTU, OCPP client, REST APIs, WiFi MQTT | Hours to days (SD card) | Full integration with PV, battery, wallbox, multiple devices |
-| **3** | Existing Home Assistant instance | €0 (already present) | All HA integrations, Remote HA or MQTT bridge | Full (HA database) | Households already running HA |
+Every household with controllable devices uses the same local controller: an **ESP32 running ESPHome**. There is one configuration approach for all households.
 
-**Constraint handling per tier:**
+| Component | Purpose | Cost |
+|-----------|---------|------|
+| ESP32 DevKit C | WiFi + Bluetooth MCU, 2 UARTs for Modbus RS485 | €12-18 |
+| MAX3485 RS485 Module | Converts ESP32 UART to RS485 for Modbus RTU | €3-5 |
+| USB power supply | 5V power (can share outlet with iOKE868 sensor) | €5-10 |
+| USB cable + enclosure | Mounting and connectivity | €3-5 |
+| **Total** | | **€20-25** |
 
-| Tier | How Constraints Are Enforced | Local Optimization Capability |
-|------|------------------------------|-------------------------------|
-| **1** (ESP32) | Hard limit: if `constraint/max_power = 5000W` exceeded, turns off non-essential loads in fixed priority order (plug first, wallbox second). Simple threshold enforcement — no scheduling. | None — fixed priority only |
-| **2** (RPi Zero 2W) | Intelligent enforcement: receives constraint and decides locally *how* to meet it. Can delay EV charging by 1h, reduce heat pump temperature, or discharge battery — whichever best fits household preferences. | Can run local optimizer (Node-RED, simple Python scheduler) |
-| **3** (Existing HA) | Fully integrated: constraint becomes a condition in local HA automations. Household defines its own rules for how to respect the limit while maximizing comfort/cost savings. | Full HA automations + local add-ons |
+**Capabilities:**
+- Runs ESPHome firmware — all configuration via YAML, no coding required
+- Connects to central HA via MQTT over household WiFi
+- Modbus RTU (RS485) for wallbox, PV inverter, battery BMS (±1-2 Modbus devices)
+- WiFi for smart plugs (Shelly local HTTP API) or direct ESPHome switches
+- Enforces hard limits: if total household power exceeds `control/max_power`, sheds loads in fixed priority order
+- Executes emergency `control/shed` immediately when received
+- ESPHome native encryption + MQTT TLS for security
 
-**Tier 1 (ESP32/ESPHome):**
-- Runs ESPHome firmware — connects to central HA via native API or MQTT
-- Modbus RTU via UART + MAX3485 transceiver for wallbox/inverter
-- Simple YAML configuration, no coding required
-- Power: USB 5V (can share with iOKE868 power supply)
-- Security: MQTT over TLS, unique device authentication per house
-- Constraint enforcement via ESPHome lambda: compare current power sum against `constraint/max_power` value, shed loads accordingly
+**Setup:**
+1. Flash ESPHome firmware via USB (first-time) or OTA (updates)
+2. Connect MAX3485: ESP32 GPIO16 (TX) → RS485, GPIO17 (RX) ← RS485, wire A/B to wallbox/inverter Modbus terminals
+3. Write ESPHome YAML with Modbus client and MQTT topics
+4. Configure WiFi SSID/password for household network
+5. Set MQTT broker address to central server IP
+6. Test: `mosquitto_pub` and `mosquitto_sub` to verify MQTT link
 
-**Tier 2 (RPi Zero 2W):**
-- Runs a lightweight Python agent or Node-RED flows
-- Supports Modbus TCP (Ethernet/WiFi) and Modbus RTU (USB/GPIO)
-- Can run EVCC as OCPP client for wallbox control
-- Local SQLite database buffers all readings when MQTT link is down
-- Periodic heartbeat confirms connectivity; watchdog checks time since last heartbeat
-- Constraint handler: Python callback on `constraint/#` topics that adjusts local device schedules
-- Compliance reporter: periodically publishes current load against limit to `status/compliance`
+### 3.2.3 Backhaul (Household to Central)
 
-**Tier 3 (Existing HA):**
-- Use "Remote Home-Assistant" add-on to bridge entities to central HA
-- Or: MQTT auto-discovery — local HA publishes all device entities to central MQTT broker
-- Zero additional hardware cost
-- Requires household to already run HA competently
-- Constraint handling: HA automation triggers on `constraint/max_power` changes, adjusts device states accordingly
+The ESP32 connects to the central MQTT broker over the household's existing WiFi network. No additional infrastructure is needed.
 
-### 3.2.3 Backhaul Options
+| Option | Description | Setup |
+|--------|-------------|-------|
+| **MQTT over WiFi (default)** | ESP32 connects to household WiFi, publishes to central MQTT broker | Configure WiFi SSID/password + broker IP in ESPHome YAML |
+| **MQTT over Ethernet** | For households with Ethernet near the controller (more reliable) | Use ESP32 with Ethernet module (e.g., Olimex ESP32-POE) |
 
-The link between the local controller and the central MQTT broker depends on the household's network situation:
+No internet connection is required — MQTT stays on the local network if the broker is reachable via LAN/WiFi. TLS is optional for local-only deployments.
 
-| Option | Description | Internet Required? | Security | Latency |
-|--------|-------------|-------------------|----------|---------|
-| **MQTT over LAN/WiFi** | Controller connects to central broker via local Ethernet/WiFi | No | TLS + password | <1ms |
-| **MQTT over Internet** | Controller connects to central broker via house's existing internet (DDNS/VPN) | Yes | TLS + client certificate | 10-50ms |
-| **Community WiFi Mesh** | Dedicated neighborhood mesh (e.g., batman-adv, OpenWrt mesh) | No | WPA2 + TLS | 1-5ms |
-| **LoRaWAN status only** | Basic heartbeat and watchdog status via LoRaWAN downlink | No | AES-128 | seconds |
+### 3.2.4 Device Support on ESP32
 
-**Recommendation:** Default to MQTT over the household's existing internet connection with TLS + client certificate. This requires no additional infrastructure and works for any tier. For offline-critical deployment (FR06), add a community WiFi mesh or accept that watchdog commands are sent via LoRaWAN downlink as fallback.
+| Device | Connection | ESPHome Configuration |
+|--------|-----------|----------------------|
+| Wallbox (Modbus RTU) | RS485 via MAX3485 | Modbus RTU client in YAML |
+| Wallbox (Modbus TCP) | WiFi (if wallbox supports TCP) | Prefer RS485 for reliability |
+| PV Inverter (Modbus) | RS485 via MAX3485 | Modbus RTU client (1-2 devices total per ESP32) |
+| Battery BMS (Modbus RTU) | RS485 via MAX3485 | Modbus RTU client (if registers are documented) |
+| Smart Plug (Shelly) | WiFi local HTTP API | `http_request` component to poll Shelly REST |
+| Smart Plug (generic MQTT) | WiFi | ESPHome MQTT output component |
 
-### 3.2.4 Device Mapping Per Tier
+If a household has more than 2 Modbus devices, use a second ESP32 or one of the alternative controller options documented in the appendix (Section 12).
 
-| Device | Tier 1 (ESP32) | Tier 2 (RPi Zero) | Tier 3 (Existing HA) |
-|--------|----------------|-------------------|----------------------|
-| Wallbox (Modbus TCP) | — (needs Modbus RTU via RS485) | ✓ Modbus TCP or EVCC OCPP | ✓ Any HA integration |
-| Wallbox (Modbus RTU) | ✓ RS485 + MAX3485 | ✓ RS485 USB dongle | ✓ RS485 USB dongle |
-| Wallbox (OCPP) | — | ✓ EVCC as OCPP client | ✓ EVCC add-on |
-| PV Inverter (Modbus) | ✓ (limited to 1-2 devices) | ✓ Full Modbus TCP | ✓ Any HA integration |
-| Battery BMS | — | ✓ Modbus or REST | ✓ Any HA integration |
-| Smart Plug (Shelly) | ✓ Shelly local HTTP API | ✓ Shelly local HTTP API | ✓ Shelly integration |
-| Smart Plug (MQTT) | ✓ ESPHome native | ✓ Node-RED / Python | ✓ HA MQTT integration |
+### 3.2.5 Control Philosophy
 
-### 3.2.5 Control Philosophy — Separation of Concerns
-
-The system uses a **two-tier control model**: constraints and recommendations are the primary mode; direct commands are the emergency fallback.
-
-**Why constraints over commands:**
-- **Household autonomy**: Each household decides how to meet limits based on its own priorities (comfort, cost, PV yield)
-- **Economic fairness (FR20)**: Different pricing models (EEG, dynamic, §14a) require different optimization strategies — only the household knows its tariff
-- **Privacy**: Central system does not need to know which devices are in each house or their schedules
-- **Resilience**: A household can continue operating normally even if the MQTT link to central is temporarily lost — it stays within the last known constraint
-- **Future-proofing**: New device types can be added at the household level without central coordination
+The system uses a **constraint-based control model**: the central system sets hard limits, the ESP32 enforces them locally. This provides household autonomy, privacy (central system never sees individual device states), and resilience (ESP32 continues enforcing the last known limit even if MQTT drops).
 
 **Responsibility split:**
 
-| Concern | Central System | Household System |
-|---------|---------------|------------------|
-| Transformer safety | Monitors virtual transformer, calculates fair-share limits per household | Respects `max_power` and `max_export` constraints |
-| Load optimization | Broadcasts price signals and recommended charge windows | Decides device schedules within constraints (or ignores recommendations) |
-| Compliance enforcement | Checks if household stays within limits; escalates if violated | Reports compliance status periodically |
-| Emergency shutdown | Issues direct `command/shed` only as last resort | Local controller always listens for and executes shed commands |
-| Local preferences | Unknown — does not track household devices or behavior | Full knowledge of devices, tariffs, comfort requirements |
+| Concern | Central System (HA) | Household (ESP32) |
+|---------|--------------------|--------------------|
+| Transformer safety | Monitors virtual transformer, calculates fair-share limits | Enforces `control/max_power` by shedding loads in priority order |
+| Load optimization | Broadcasts price signals | Decides locally which loads to run within limits |
+| Emergency shutdown | Issues `control/shed` as last resort | Executes shed immediately (all non-essential off) |
 
-**Normal operation flow (constraint mode):**
-
+**Normal operation:**
 ```
-Central                                                   Household
-   │                                                          │
-   ├─ constraint/max_power = 5000W ──────────────────────────►│
-   │                                                          ├─ Decides: "I have 5kW budget"
-   │                                                          │  → Run heat pump at 2kW
-   │                                                          │  → Charge EV at 3kW
-   │                                                          │  (within limit)
-   │◄── sensor/wallbox/power = 3000W ─────────────────────────┤
-   │◄── sensor/plug/power = 2000W ────────────────────────────┤
-   │◄── status/compliance = {compliant: true} ────────────────┤
-   │                                                          │
+Central HA                                ESP32
+   │                                         │
+   ├─ control/max_power = 5000W ───────────►│
+   │                                         ├─ "I have 5kW budget"
+   │                                         │  → Heat pump at 2kW
+   │                                         │  → EV charges at 3kW
+   │◄── sensor/wallbox/power = 3000W ────────┤
+   │◄── sensor/plug/power = 2000W ───────────┤
 ```
 
-**Emergency flow (command fallback):**
-
+**Emergency shed:**
 ```
-Central                                                   Household
-   │                                                          │
-   ├─ constraint/max_power = 3000W ──────────────────────────►│  Step 1: tighten constraint
-   │◄── status/compliance = {compliant: true} ────────────────┤
-   │  (30s later — transformer still overloaded)               │
-   ├─ command/shed ──────────────────────────────────────────►│  Step 2: direct command
-   │◄── status/shed = {executed} ─────────────────────────────┤
-   │                                                          │
+Central HA                                ESP32
+   │                                         │
+   ├─ control/max_power = 3000W ───────────►│  Step 1: tighten limit
+   │  (30s — still overloaded)               │
+   ├─ control/shed ────────────────────────►│  Step 2: emergency shed
+   │◄── status/shed = {executed} ───────────┤
 ```
 
-**Constraint priority order (when limits conflict):**
-
-1. **`command/shed`** — highest priority, must be executed immediately (transformer emergency)
-2. **`constraint/max_power`** — hard limit on total import, household must stay below
-3. **`constraint/max_export`** — hard limit on grid feed-in
-4. **`recommendation/*`** — non-binding, household may ignore based on local optimization
+**Load shed priority (ESP32, fixed order):**
+1. Smart plugs (non-essential loads)
+2. Wallbox charging (pause EV)
+3. Battery charging (stop charging)
+4. Heat pump / other controllable loads
 
 ---
 
@@ -515,105 +458,50 @@ input_number:
 
 ### Phase E: Control Integration via Local Controller
 
-> **Architecture:** All device integration (wallbox, PV, battery, smart plugs) happens on the **per-household local controller**, not on the central server. The local controller publishes normalized data to central MQTT and subscribes to control commands. See Section 3.2 for the full topic hierarchy and tier options.
+> **Architecture:** All device integration (wallbox, PV, battery, smart plugs) happens on the **per-household ESP32**, not on the central server. The ESP32 publishes sensor data to central MQTT and subscribes to control commands. See Section 3.2 for the full topic hierarchy.
 
 #### E.1 Integration Architecture
 
 ```
 ┌─ HOUSEHOLD ─────────────────────────────────────────────────────┐
 │                                                                  │
-│  Wallbox ──Modbus──┐                                             │
-│  PV Inverter ─Modbus┤──→ Local Controller ──MQTT──→ Central HA  │
-│  Battery ───Modbus──┤       (Tier 1/2/3)    (TLS)               │
-│  Smart Plug ──WiFi──┘                                             │
+│  Wallbox ───Modbus RTU──┐                                        │
+│  PV Inverter ─Modbus RTU─┤──→ ESP32 (ESPHome) ──MQTT──→ Central │
+│  Battery ─────Modbus RTU─┤        (via WiFi)      (TLS)    HA   │
+│  Smart Plug ────WiFi────┘                                        │
 │                                                                  │
-│  Local Controller handles:                                       │
-│  • All protocol translation (Modbus, OCPP, REST)                 │
-│  • All local device discovery and polling                         │
-│  • Data normalization to MQTT topic schema                        │
-│  • Constraint enforcement: stay within max_power/max_export      │
-│  • Recommendation processing: decide locally whether to follow   │
-│  • Local execution of shed commands (emergency fallback only)    │
-│  • Data buffering during network outages                          │
-│  • Compliance reporting: publish current status against limits   │
+│  ESP32 handles:                                                  │
+│  • Protocol translation (Modbus RTU, Shelly HTTP)                │
+│  • Data normalization to MQTT topic schema                       │
+│  • Hard limit enforcement: stay within control/max_power         │
+│  • Emergency shed execution on control/shed                      │
+│  • Data buffering during network outages (last values)           │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-#### E.1.1 Constraint and Recommendation Handling
+#### E.1.1 Control Topic Handling
 
-> **Primary mode:** The central system sends constraints (hard limits) and recommendations (suggestions). The local controller is responsible for staying within constraints while deciding autonomously how to use its available budget. Direct commands are only used in emergencies.
+> **Primary mode:** The central system sends hard limits via `control/max_power`. The ESP32 enforces these locally by shedding loads in priority order. `control/shed` is the emergency fallback.
 
-**Constraint flow per device type:**
+| Topic | Purpose | ESP32 Action |
+|-------|---------|-------------|
+| `control/max_power` | Hard limit on total household import | Sum all device power; if exceeding limit, shed lowest-priority device |
+| `control/shed` | Emergency shutdown | Turn off all non-essential loads immediately |
 
-| Constraint Topic | Applies To | Local Controller Action |
-|-----------------|------------|------------------------|
-| `constraint/max_power` | All devices (total household import) | Sum all device power; if approaching limit, reduce non-essential loads first |
-| `constraint/max_export` | PV inverter, battery | Limit grid feed-in by curtailing PV or stopping battery discharge |
-| `command/shed` | All protected devices | Immediate shutdown — emergency only, overrides all constraints |
+No compliance reporting or heartbeat — the central system monitors actual load via sensor data.
 
-**Recommendation flow:**
+#### E.2 Wallbox/EV Charger Integration (on ESP32)
 
-| Recommendation Topic | Meaning | Household Decision |
-|--------------------|---------|-------------------|
-| `recommendation/charge_window` | "Cheapest prices 14:00-16:00" | Tier 2/3: schedule EV charging accordingly. Tier 1: ignore (no scheduling ability). |
-| `recommendation/price_signal` | Current market price signal | Tier 2/3: use as input to local optimization. Tier 1: ignore. |
+1. **Supported Protocol**
 
-**Local controller constraint enforcement examples per tier:**
+   | Protocol | ESP32 Support | Notes |
+   |----------|--------------|-------|
+   | Modbus RTU (RS485) | ✓ via MAX3485 | Preferred — simple, reliable |
+   | Modbus TCP | — | Not recommended on ESP32; use RS485 instead |
+   | OCPP 1.6/2.0 | — | Not available on ESP32. Use EVCC on RPi (see appendix) |
+   | Manufacturer REST | — | Not available on ESP32 |
 
-```
-Tier 1 (ESP32):
-  Subscribe: constraint/max_power
-  On update: if total_power > max_power, shed lowest-priority device
-  Logic:     "I have 5kW limit. Currently using 5.2kW. Turn off smart_plug_3."
-
-Tier 2 (RPi Zero):
-  Subscribe: constraint/max_power + recommendation/price_signal
-  On update: re-run local optimizer with new constraint
-  Logic:     "I have 5kW limit and prices peak at 18:00.
-              Option A: reduce EV from 11kW to 5kW, charge battery from grid.
-              Option B: delay EV until 22:00, use PV for battery.
-              → Pick Option B (better for household cost)."
-
-Tier 3 (Existing HA):
-  Subscribe: constraint/max_power
-  Trigger HA automation: "When max_power changes, adjust device schedules"
-  Full HA automation capabilities
-```
-
-**Compliance reporting (all tiers):**
-
-Each local controller periodically publishes its compliance status:
-
-```json
-topic: lem-netz/house/<id>/status/compliance
-payload: {
-  "constraint": "max_power",
-  "limit": 5000,
-  "current_load": 4800,
-  "compliant": true,
-  "devices": {
-    "wallbox": 3000,
-    "smart_plug_1": 1200,
-    "smart_plug_2": 600
-  }
-}
-```
-
-If a household is non-compliant (current_load > limit), the central watchdog can:
-1. Log warning
-2. Tighten constraint further
-3. If persistent: escalate to direct `command/shed`
-
-#### E.2 Wallbox/EV Charger Integration (on Local Controller)
-
-1. **Supported Protocols per Tier**
-
-   | Protocol | Tier 1 (ESP32) | Tier 2 (RPi Zero) | Tier 3 (Existing HA) |
-   |----------|----------------|-------------------|----------------------|
-   | Modbus RTU (RS485) | ✓ (MAX3485) | ✓ (USB dongle) | ✓ (USB dongle) |
-   | Modbus TCP | — | ✓ | ✓ |
-   | OCPP 1.6/2.0 | — | ✓ (via EVCC) | ✓ (via EVCC add-on) |
-   | Manufacturer REST | — | ✓ (curl/Python) | ✓ (HA integration) |
+   **Recommendation:** Connect wallbox via Modbus RTU (RS485). If your wallbox only supports OCPP, see the RPi-based alternative in Section 12.
 
 2. **Data Published to Central MQTT**
 
@@ -621,61 +509,54 @@ If a household is non-compliant (current_load > limit), the central watchdog can
    |-------|---------|----------|
    | `lem-netz/house/<id>/sensor/wallbox/power` | `{"value": 4500, "unit": "W"}` | Every 15s or on change |
    | `lem-netz/house/<id>/sensor/wallbox/energy` | `{"value": 12.5, "unit": "kWh"}` | Every 5 min |
-   | `lem-netz/house/<id>/sensor/wallbox/status` | `{"state": "charging", "phase_count": 3}` | On change |
+   | `lem-netz/house/<id>/sensor/wallbox/status` | `{"state": "charging"}` | On change |
    | `lem-netz/house/<id>/status/shed` | `{"status": "executed", "loads_shed": ["wallbox"]}` | On watchdog command |
 
-3. **Constraints and Commands Received from Central MQTT**
+3. **Control Commands from Central MQTT**
 
-   | Topic | Type | Payload | Local Controller Action |
-   |-------|------|---------|------------------------|
-   | `constraint/max_power` | Constraint | `{"value": 5000, "unit": "W"}` | Reduce wallbox current so total household stays below limit. Tier 1: hard-cut at threshold. Tier 2/3: smart reduction within local schedule. |
-   | `constraint/max_export` | Constraint | `{"value": 3000, "unit": "W"}` | Limit PV export or battery discharge to stay below feed-in cap |
-   | `recommendation/charge_window` | Recommendation | `{"start": "14:00", "end": "16:00"}` | Tier 2/3: schedule charging within window if beneficial. Tier 1: ignore. |
-   | `command/shed` | Fallback command | `{"reason": "transformer_overload", "priority": 1}` | Immediately stop wallbox charging regardless of local preferences. Only used after constraint escalation fails. |
+   | Topic | Payload | ESP32 Action |
+   |-------|---------|-------------|
+   | `control/max_power` | `{"value": 5000, "unit": "W"}` | Reduce wallbox current so total household stays below limit |
+   | `control/shed` | `{"reason": "transformer_overload"}` | Immediately stop wallbox charging |
 
-4. **OCPP Compatibility Warning**
-   - Some wallbox manufacturers have OCPP implementation issues:
-     - **Wallbox Pulsar Plus/Pro**: Known OCPP disconnects every few days requiring restart of both wallbox and EVCC; firmware 6.7.x introduced daily forced reboots that break OCPP connections
-     - **General**: Prefer local Modbus/REST APIs over OCPP when available
-     - **EVCC** is actively developed (240+ manufacturers supported) — test compatibility before deployment
-   - On Tier 2, run EVCC locally on the RPi Zero as an OCPP client
-   - On Tier 3, use the EVCC HA add-on in the local HA instance
-   - See [EVCC GitHub Issues](https://github.com/evcc-io/evcc/issues) for known problems
+4. **OCPP Compatibility Note**
+   - If your wallbox only supports OCPP (e.g., Wallbox Pulsar Plus), you will need the RPi-based alternative controller (see Section 12) since OCPP is not supported on ESP32
+   - Prefer wallboxes with Modbus RTU for compatibility with this architecture
 
-#### E.3 Smart Plug/Switch Integration (on Local Controller)
+#### E.3 Smart Plug/Switch Integration (on ESP32)
 
-All smart plug integration runs on the local controller, which reads power data and relays on/off commands:
+Smart plugs connect via WiFi and are polled by the ESP32:
 
-1. **Per Tier**
+1. **Supported Devices**
 
-   | Device | Tier 1 (ESP32) | Tier 2 (RPi Zero) | Tier 3 (Existing HA) |
-   |--------|----------------|-------------------|----------------------|
-   | Shelly Plus Plug S | HTTP GET local IP for power | HTTP API via requests/curl | Shelly HA integration |
-   | Shelly Pro 4PM | HTTP GET for each channel | HTTP API | Shelly HA integration |
-   | Generic MQTT plug | ESPHome output component | Python MQTT client | HA MQTT integration |
-   | Tuya Smart Plug | — | Tuya API (if local) | Tuya HA integration |
+   | Device | Connection | ESPHome Configuration |
+   |--------|-----------|----------------------|
+   | Shelly Plus Plug S | WiFi local HTTP API | `http_request` component to poll REST API |
+   | Shelly Pro 4PM | WiFi local HTTP API | `http_request` component (4 channels) |
+   | Generic MQTT plug | WiFi | ESPHome MQTT output component |
 
 2. **Data Flow**
-   - **Sensor data**: Local controller polls Shelly at `http://<shelly-ip>/rpc/Switch.GetStatus` → publishes to `lem-netz/house/<id>/sensor/plug/<name>/power`
-   - **Constraint**: Central publishes `constraint/max_power` → local controller sums all plug power, turns off lowest-priority plugs if approaching limit
-   - **Control** (fallback): Central publishes `command/shed` → local controller sends HTTP POST to Shelly → confirms via `lem-netz/house/<id>/status/plug/<name>`
+   - **Sensor data**: ESP32 polls Shelly at `http://<shelly-ip>/rpc/Switch.GetStatus` → publishes to `lem-netz/house/<id>/sensor/plug/<name>/power`
+   - **Limit**: ESP32 sums all plug power; if approaching `control/max_power`, turns off lowest-priority plug
+   - **Emergency**: ESP32 receives `control/shed` → sends HTTP POST to Shelly to turn off
 
 3. **Configuration**
    - Assign static IP to each smart plug via DHCP reservation
-   - Register plug MAC address in local controller config
-   - Assign each plug a shed priority (1 = shed first, 3 = shed last) for constraint enforcement
-   - Tag each plug with `transformer_protected: true` in controller config for watchdog
+   - Assign each plug a shed priority (1 = shed first) in ESPHome YAML
 
-#### E.4 PV System Integration (on Local Controller)
+#### E.4 PV System Integration (on ESP32)
 
-1. **Per Tier**
+1. **Supported Inverters**
 
-   | Inverter | Tier 1 (ESP32) | Tier 2 (RPi Zero) | Tier 3 (Existing HA) |
-   |----------|----------------|-------------------|----------------------|
-   | SolarEdge (Modbus TCP) | — | ✓ modbus_read.py | ✓ HA SolarEdge integration |
-   | SMA (Modbus TCP) | — | ✓ SMA Modbus client | ✓ HA SMA integration |
-   | Kostal (Modbus TCP) | ✓ (RS485 to Modbus RTU) | ✓ Modbus RTU or TCP | ✓ HA Kostal integration |
-   | Victron (Venus OS) | — | ✓ REST API on Venus | ✓ HA Victron integration |
+   | Inverter | ESP32 Connection | Notes |
+   |----------|-----------------|-------|
+   | Kostal (Modbus RTU) | RS485 via MAX3485 | Works with Modbus RTU |
+   | Kostal (Modbus TCP) | — | Not supported on ESP32 |
+   | SolarEdge | — | Use HA SolarEdge integration for monitoring on central server |
+   | SMA | — | Use HA SMA integration for monitoring on central server |
+   | Victron | — | Use HA Victron integration for monitoring on central server |
+
+   The ESP32 can read a PV inverter with Modbus RTU output. For monitoring-only (no control), publish inverter data directly to HA via the built-in integration and skip the ESP32 connection.
 
 2. **Data Published**
 
@@ -683,22 +564,23 @@ All smart plug integration runs on the local controller, which reads power data 
    |-------|---------|
    | `lem-netz/house/<id>/sensor/pv/production` | `{"value": 3200, "unit": "W"}` |
    | `lem-netz/house/<id>/sensor/pv/daily_yield` | `{"value": 14.2, "unit": "kWh"}` |
-   | `lem-netz/house/<id>/sensor/pv/total_yield` | `{"value": 4520, "unit": "kWh"}` |
 
-3. **Constraints**
-   - `constraint/max_export`: If set, local controller must limit PV feed-in. Tier 1 can only disconnect inverter (on/off). Tier 2/3 can set power curtailment via Modbus register if inverter supports it.
-   - `recommendation/sell_signal`: Central suggests "export now" (high prices) — Tier 2/3 may increase feed-in from battery if profitable.
+3. **Control**
+   - The ESP32 only reads PV data; it does not curtail PV production (this requires inverter-specific Modbus registers beyond ESP32 scope)
+   - If PV curtailment is needed, implement it in HA automations using the inverter's native integration
 
-#### E.5 Battery Storage Integration (on Local Controller)
+#### E.5 Battery Storage Integration (on ESP32)
 
-1. **Per Tier**
+1. **Supported Systems**
 
-   | System | Tier 1 (ESP32) | Tier 2 (RPi Zero) | Tier 3 (Existing HA) |
-   |--------|----------------|-------------------|----------------------|
-   | BYD (Modbus) | — | ✓ Modbus TCP/RTU | ✓ HA Modbus integration |
-   | Tesla Powerwall | — | ✓ Local Gateway API | ✓ HA Powerwall integration |
-   | FoxESS (Modbus) | — | ✓ Modbus client | ✓ HA Modbus integration |
-   | Generic Modbus BMS | ✓ (simple registers) | ✓ Full register map | ✓ HA Modbus integration |
+   | System | ESP32 Connection | Notes |
+   |--------|-----------------|-------|
+   | Generic Modbus BMS | RS485 via MAX3485 | Works if Modbus registers are documented and simple (SoC, power) |
+   | BYD (Modbus) | — | Use HA Modbus integration on central server instead |
+   | Tesla Powerwall | — | Use HA Powerwall integration on central server |
+   | FoxESS (Modbus) | — | Use HA Modbus integration on central server |
+
+   For most battery systems, use the HA integration directly on the central server rather than routing through ESP32. The ESP32 connection is only needed for batteries with simple Modbus RTU interfaces.
 
 2. **Data Published**
 
@@ -706,12 +588,10 @@ All smart plug integration runs on the local controller, which reads power data 
    |-------|---------|
    | `lem-netz/house/<id>/sensor/battery/soc` | `{"value": 65, "unit": "%"}` |
    | `lem-netz/house/<id>/sensor/battery/power` | `{"value": -1500, "unit": "W"}` (negative = charging) |
-   | `lem-netz/house/<id>/sensor/battery/status` | `{"state": "discharging"}` |
 
-3. **Constraints**
-   - `constraint/max_export`: Limit battery discharge to grid. Tier 2/3 can adjust charge/discharge setpoints.
-   - `constraint/max_power`: Total household limit — battery can help by discharging to cover load instead of importing from grid.
-   - `recommendation/charge_window`: Tier 2/3 can schedule battery charging during low-price periods to reduce cost.
+3. **Control**
+   - The ESP32 reads battery state for load management decisions
+   - If battery control is needed (charge/discharge scheduling), it is handled by HA automations using the battery's native HA integration
 
 ### Phase F: Revenue-Aware Optimization
 
@@ -719,104 +599,92 @@ All smart plug integration runs on the local controller, which reads power data 
 
 > **IMPLEMENTATION ORDER:** Infrastructure safety MUST be implemented BEFORE economic optimization. The watchdog is the enforcement mechanism.
 
-The watchdog operates in **two stages**: first by tightening constraints (allowing households to self-regulate), then by direct shed commands only if the constraint tightening does not resolve the overload within a timeout.
+The watchdog operates in **two stages**: first by tightening `control/max_power` limits (allowing ESP32s to self-regulate), then by direct shed commands if the limit tightening does not resolve the overload.
 
-**Two-stage architecture:**
 ```
 Central HA detects overload (80%)
   │
-  ├─ Stage 1: constraint/max_power = reduced_limit ──► Household autonomously complies
-  │     Wait 30s for compliance
+  ├─ Stage 1: control/max_power = reduced_limit ──► ESP32s shed loads autonomously
+  │     Wait 30s
   │
-  ├─ Stage 2: command/shed ──► Immediate load shed
+  ├─ Stage 2: control/shed ──► Immediate load shed on all households
   │     (only if still overloaded after Stage 1)
   │
-  └─ Recovery: restore constraints → restore loads
+  └─ Recovery: restore limits → restore loads
 ```
 
 #### F.0.1 Watchdog Stages
 
-**Stage 1 — Constraint Tightening (normal response):**
+**Stage 1 — Limit Tightening (normal response):**
 
 | Step | Action | Detail |
 |------|--------|--------|
 | 1.1 | Detect threshold | `sensor.virtual_transformer` exceeds 80% (8000W for 10kVA) |
-| 1.2 | Calculate fair share | Reduce each household's `max_power` proportionally: e.g., total load 10kW across 10 houses → each gets 800W instead of 1000W |
-| 1.3 | Publish constraint | `lem-netz/house/<id>/constraint/max_power` = new limit per household |
-| 1.4 | Wait for compliance | 30-second window for households to self-regulate |
-| 1.5 | Check compliance | Sum reported loads from `status/compliance` topics. If total < 80% → resolved. If still > 80% → proceed to Stage 2. |
+| 1.2 | Calculate fair share | Reduce each household's `max_power` proportionally |
+| 1.3 | Publish limit | `lem-netz/house/<id>/control/max_power` = new limit per household |
+| 1.4 | Wait | 30-second window for ESP32s to self-regulate |
+| 1.5 | Check | If total < 80% → resolved. If still > 80% → proceed to Stage 2 |
 
 **Stage 2 — Direct Shed (escalation, only if Stage 1 fails):**
 
 | Step | Action | Detail |
 |------|--------|--------|
-| 2.1 | Identify non-compliant | Households whose `status/compliance` shows current_load > limit |
-| 2.2 | Send shed commands | `lem-netz/house/<id>/command/shed` to non-compliant households |
-| 2.3 | Acknowledge | Local controllers confirm execution via `status/shed` |
-| 2.4 | Verify resolution | If transformer still > 80%, widen shed to all households, not just non-compliant |
-| 2.5 | Alert | Create persistent notification and log event |
+| 2.1 | Send shed | `lem-netz/house/<id>/control/shed` to ALL households |
+| 2.2 | Acknowledge | ESP32s confirm via `status/shed` |
+| 2.3 | Verify | If still > 80%, alert and escalate manually |
+| 2.4 | Alert | Create persistent notification and log event |
 
-#### F.0.2 Household Compliance Configuration
+#### F.0.2 Central Configuration
 
 ```yaml
-# Central HA: Household power limit configuration
-lem_netz:
-  transformer:
-    max_power: 10000           # Transformer rating (VA)
-    warning_threshold: 0.8      # 80% — trigger Stage 1
-    critical_threshold: 0.95    # 95% — trigger Stage 2 immediately (skip Stage 1)
-    recovery_threshold: 0.6     # 60% — restore loads
-    stage1_timeout: 30          # Seconds to wait before escalating to Stage 2
+# Home Assistant: Virtual transformer and thresholds
+sensor:
+  - platform: template
+    sensors:
+      virtual_transformer:
+        unit_of_measurement: "W"
+        value_template: >
+          {% set total = 0 %}
+          {% for i in range(1, 101) %}
+            {% set total = total + states('sensor.house_' ~ i ~ '_power') | float(0) %}
+          {% endfor %}
+          {{ total }}
 
-  households:
-    1:
-      name: "Household 1"
-      base_allocation: 2000     # Normal max_power (W)
-      devices:
-        - id: wallbox
-          type: ev_charger
-          max_power: 11000
-        - id: plug_pool_pump
-          type: smart_plug
-          max_power: 1500
-        - id: plug_heater
-          type: smart_plug
-          max_power: 2000
+# Per-household base allocation (normal max_power per house)
+input_number:
+  household_1_base_allocation:
+    name: "Household 1 base allocation"
+    min: 0
+    max: 10000
+    step: 100
+    unit_of_measurement: "W"
 ```
 
 #### F.0.3 Watchdog Automation (Central HA)
 
 ```yaml
-# Stage 1: Tighten constraints when transformer exceeds 80%
+# Stage 1: Tighten limits when transformer exceeds 80%
 automation:
-  - alias: "Transformer Stage 1 — Constraint Tightening"
+  - alias: "Transformer Stage 1 — Limit Tightening"
     trigger:
       - platform: numeric_state
         entity_id: sensor.virtual_transformer
-        above: 8000  # 80% of 10kVA
+        above: 8000
     mode: single
     action:
-      # Calculate reduction factor
       - variables:
           overload_factor: "{{ 8000 / states('sensor.virtual_transformer') | float }}"
-      
-      # Publish reduced max_power to each household
       - service: mqtt.publish
         data:
-          topic: "lem-netz/house/1/constraint/max_power"
-          payload: '{"value": {{ (2000 * overload_factor) | int }}, "unit": "W", "reason": "transformer_overload", "valid_until": "{{ (now() + timedelta(minutes=15)).isoformat() }}"}'
+          topic: "lem-netz/house/1/control/max_power"
+          payload: '{"value": {{ (2000 * overload_factor) | int }}, "unit": "W"}'
           qos: 2
       - service: mqtt.publish
         data:
-          topic: "lem-netz/house/2/constraint/max_power"
-          payload: '{"value": {{ (2000 * overload_factor) | int }}, "unit": "W", "reason": "transformer_overload", "valid_until": "..."}'
+          topic: "lem-netz/house/2/control/max_power"
+          payload: '{"value": {{ (2000 * overload_factor) | int }}, "unit": "W"}'
           qos: 2
-      # ... repeat per household ...
-
-      # Wait for households to self-regulate
       - delay: "00:00:30"
-
-      # Check if resolved — if not, escalate to Stage 2
       - if:
           - condition: numeric_state
             entity_id: sensor.virtual_transformer
@@ -825,45 +693,37 @@ automation:
           - service: mqtt.publish
             data:
               topic: "lem-netz/watchdog/escalation"
-              payload: '{"stage": 2, "reason": "constraint_tightening_insufficient"}'
+              payload: '{"stage": 2}'
               qos: 2
 ```
 
 ```yaml
-# Stage 2: Direct shed commands (triggered by escalation or 95% threshold)
+# Stage 2: Direct shed (triggered by escalation or 95% threshold)
 automation:
   - alias: "Transformer Stage 2 — Direct Shed"
     trigger:
       - platform: numeric_state
         entity_id: sensor.virtual_transformer
-        above: 9500  # 95% — emergency, skip Stage 1
+        above: 9500
       - platform: mqtt
         topic: "lem-netz/watchdog/escalation"
     mode: single
     action:
-      # Send direct shed to all households
       - repeat:
-          for_each: ["lem-netz/house/1/command/shed", "lem-netz/house/2/command/shed"]
+          for_each: ["lem-netz/house/1/control/shed", "lem-netz/house/2/control/shed"]
           sequence:
             - service: mqtt.publish
               data:
                 topic: "{{ repeat.item }}"
-                payload: '{"priority": "all", "reason": "transformer_critical"}'
+                payload: '{"reason": "transformer_critical"}'
                 qos: 2
-
       - service: persistent_notification.create
         data:
           title: "⚠ Critical Transformer Overload"
-          message: "Transformer exceeded 95%. Direct shed commands issued to all households."
-
-      # Log for audit
-      - service: system_log.write
-        data:
-          message: "WATCHDOG: Stage 2 shed triggered at {{ states('sensor.virtual_transformer') }}W"
-          level: warning
+          message: "Transformer exceeded 95%. Shed commands issued to all households."
 ```
 
-**Load Recovery (two-stage, reverse order):**
+**Load Recovery:**
 
 ```yaml
 automation:
@@ -871,113 +731,48 @@ automation:
     trigger:
       - platform: numeric_state
         entity_id: sensor.virtual_transformer
-        below: 6000  # 60% — hysteresis
+        below: 6000
     mode: single
     action:
-      # Stage 1: Restore constraints to normal allocation
       - service: mqtt.publish
         data:
-          topic: "lem-netz/house/1/constraint/max_power"
-          payload: '{"value": 2000, "unit": "W", "reason": "load_recovered"}'
+          topic: "lem-netz/house/1/control/max_power"
+          payload: '{"value": 2000, "unit": "W"}'
           qos: 2
       - service: mqtt.publish
         data:
-          topic: "lem-netz/house/2/constraint/max_power"
-          payload: '{"value": 2000, "unit": "W", "reason": "load_recovered"}'
+          topic: "lem-netz/house/2/control/max_power"
+          payload: '{"value": 2000, "unit": "W"}'
           qos: 2
-      # ... repeat per household ...
-
-      # Stage 2: Restore any previously shed loads
       - delay: "00:00:05"
       - service: mqtt.publish
         data:
-          topic: "lem-netz/house/1/command/restore"
+          topic: "lem-netz/house/1/control/restore"
           payload: '{"reason": "load_recovered"}'
           qos: 2
       - service: mqtt.publish
         data:
-          topic: "lem-netz/house/2/command/restore"
+          topic: "lem-netz/house/2/control/restore"
           payload: '{"reason": "load_recovered"}'
           qos: 2
 ```
 
-#### F.0.4 Local Controller Handler (on each local controller)
-
-The local controller subscribes to both `constraint/#` and `command/#` topics:
-
-**Constraint handler (all tiers, primary mode):**
-
-```python
-# Every local controller handles constraint/max_power updates
-def on_constraint_max_power(client, userdata, msg):
-    payload = json.loads(msg.payload)
-    new_limit = payload["value"]
-    
-    # Tier 1: simple threshold check and shed
-    if total_power() > new_limit:
-        shed_lowest_priority_device()
-    
-    # Tier 2/3: re-run local optimizer with new constraint
-    local_optimizer.set_max_power(new_limit)
-    local_optimizer.optimize()
-    
-    # Publish compliance
-    client.publish("lem-netz/house/1/status/compliance",
-        json.dumps({
-            "constraint": "max_power",
-            "limit": new_limit,
-            "current_load": total_power(),
-            "compliant": total_power() <= new_limit
-        }))
-
-client.subscribe("lem-netz/house/1/constraint/#")
-client.on_message = on_constraint_max_power
-```
-
-**Shed handler (all tiers, fallback):**
-
-```python
-def on_shed_command(client, userdata, msg):
-    payload = json.loads(msg.payload)
-    
-    # Immediate shutdown of all non-essential loads
-    for device in protected_devices:
-        device.turn_off()
-    
-    # Acknowledge
-    client.publish("lem-netz/house/1/status/shed",
-        json.dumps({"status": "executed", "reason": payload.get("reason", "unknown")}))
-
-client.subscribe("lem-netz/house/1/command/shed")
-client.on_message = on_shed_command
-```
-
-**Tier 1 (ESP32/ESPHome) full handler:**
+#### F.0.4 ESP32 Handler (ESPHome YAML)
 
 ```yaml
-# ESPHome: Handle both constraint and command topics
+# ESPHome: Handle control/max_power and control/shed
 api:
   on_mqtt_message:
-    - topic: lem-netz/house/1/constraint/max_power
+    - topic: lem-netz/house/1/control/max_power
       then:
         - lambda: |-
-            // Extract limit value from JSON
             int new_limit = parse_json_value(x, "value");
             id(current_max_power) = new_limit;
-            
-            // Check if current load exceeds limit
             if (id(total_power) > new_limit) {
               id(smart_plug_1).turn_off();
             }
-        - mqtt.publish:
-            topic: lem-netz/house/1/status/compliance
-            payload: !lambda |-
-              return "{\"constraint\": \"max_power\", \"limit\": " + 
-                     String(id(current_max_power)) + 
-                     ", \"compliant\": " + 
-                     (id(total_power) <= id(current_max_power) ? "true" : "false") + "}";
 
-    - topic: lem-netz/house/1/command/shed
+    - topic: lem-netz/house/1/control/shed
       then:
         - lambda: |-
             id(smart_plug_1).turn_off();
@@ -987,74 +782,16 @@ api:
             payload: '{"status": "executed"}'
 ```
 
-#### F.0.5 Watchdog Failure Detection and Audit
+#### F.0.5 Failure Detection
 
 | Situation | Detection | Action |
 |-----------|-----------|--------|
-| Household not publishing compliance | No `status/compliance` within 60s of constraint update | Mark as unresponsive; retry via LoRaWAN downlink; log warning |
-| Household non-compliant after Stage 1 | `status/compliance.compliant = false` after 30s timeout | Escalate to Stage 2 for that specific household |
-| Transformer still overloaded after full Stage 2 | `sensor.virtual_transformer` > 80% 10s after shed commands | Broaden shed to all households including non-protected devices |
-| Local controller crash | No heartbeat for >120s | Flag for maintenance; check power/WiFi at household |
+| Transformer still > 80% after Stage 2 | `sensor.virtual_transformer` > 80% for 60s after shed | Alert admin; check individual household sensor data |
+| ESP32 not responding | Sensor data stops updating on LoRaWAN path | Flag household for maintenance; check power/WiFi |
 
-#### F.1 Recommended Optimization Tools (Phase 2)
+#### F.1 Optional: Advanced Optimization
 
-Instead of hand-rolling YAML automations for each household, use existing open-source optimization tools:
-
-| Tool | Description | License | Integration | Best For |
-|------|-------------|---------|-------------|----------|
-| **HAEO** | Linear programming optimizer | MIT | HA custom integration | Battery + PV + grid optimization |
-| **AkkudoktorEOS** | Predictive price + load optimizer | Open source | HA add-on | German dynamic pricing optimization |
-| **EVCC** | EV charging + energy management | MIT | HA add-on (+390 HA sensors) | Wallbox coordination |
-| **forty-two-watts** | Multi-device battery coordinator | Open source | MQTT autodiscovery | Multi-inverter sites |
-
-#### F.2 HAEO (Recommended Primary Optimizer)
-
-[Home Assistant Energy Optimizer](https://github.com/hass-energy/haeo) — solves the optimization as a linear programming problem:
-
-- **48-hour horizon**, 5-minute resolution
-- Supports: batteries, solar, grid, constant/forecast loads, multi-node networks
-- **Constrained by infrastructure limits** (transformer capacity is a configurable constraint)
-- Automatically respects household pricing models
-- Install via HACS → Custom repositories → `https://github.com/hass-energy/haeo`
-- Requires HiGHS solver (bundled)
-
-```
-Example HAEO network model:
-  Grid (import/export limits, pricing)
-    └─ Node: Street Transformer (max 10kVA)
-         ├─ Household 1: Solar + Battery + Charger (EEG tariff)
-         ├─ Household 2: Battery only (dynamic pricing)
-         ├─ Household 3: Solar only (fixed tariff)
-         └─ ...
-```
-
-**Why HAEO over manual YAML:**
-- Proper optimization algorithm, not if-else rules
-- Constraint-aware (transformer capacity is a hard constraint)
-- 48-hour lookahead (not just current price)
-- Automatically adapts to changing conditions
-
-#### F.3 AkkudoktorEOS (Predictive Add-on)
-
-[AkkudoktorEOS](https://github.com/akkudoktor-eos/eos) — specifically designed for German energy market:
-
-- Predictive models for EPEX Spot prices
-- Load forecasting based on historical data
-- Optimizes: batteries, heat pumps, EV charging
-- Available as Home Assistant add-on
-- Designed by Dr. Andreas Schmitz (YouTube: @akkudoktor)
-
-#### F.4 Per-Household Optimization Rules (When using HAEO/AkkudoktorEOS)
-
-Configure each household's tariff type in the optimizer:
-
-| Household Type | HAEO Configuration | Optimization Goal |
-|---------------|--------------------|-------------------|
-| No PV, fixed tariff | Set import price to fixed rate | Minimize consumption cost |
-| PV only (EEG) | Set export price to feed-in rate | Maximize self-consumption |
-| PV + Battery (Dynamic) | Enable dynamic import/export rates | Arbitrage |
-| Battery only | Enable dynamic import, set export=0 | Charge cheap, discharge peak |
-| Heat pump | Add §14a network charge schedule | Shift to low-tariff periods |
+For revenue-aware optimization (Phase 2), Home Assistant integrations can import dynamic prices (EPEX Spot, Tibber — see Phase D) and HA automations can implement basic rules (e.g., "charge battery when price < X"). For more sophisticated optimization with 48-hour lookahead, see the optimization tools in Section 12 (Appendix).
 
 ---
 
@@ -1122,17 +859,15 @@ Each component was evaluated against the following criteria:
 
 | Product | Price (incl. VAT) | German Shop | Use Case |
 |---------|-------------------|-------------|----------|
-| **ESP32 DevKit C** | €12-18 | [reichelt.de](https://www.reichelt.de) · [amazon.de](https://www.amazon.de) | Tier 1 controller: WiFi + Bluetooth, 2 UARTs for Modbus RS485, runs ESPHome, low power |
-| **MAX3485 RS485 Module** | €3-5 | [reichelt.de](https://www.reichelt.de) · [iot-shop.de](https://iot-shop.de) | Required for Tier 1 ESP32 Modbus RTU connection to wallbox/inverter |
-| **USB RS485 Adapter** | €8-12 | [reichelt.de](https://www.reichelt.de) | Required for Tier 2 RPi Zero Modbus RTU connection |
-| **Raspberry Pi Zero 2W** | €18-22 | [reichelt.de](https://www.reichelt.de) · [raspberrypi.com](https://www.raspberrypi.com) | Tier 2 controller: quad-core, WiFi, 512MB RAM, runs Python/Node-RED agent |
-| **RPi Zero 2W Case + PSU + SD** | €15-20 | [reichelt.de](https://www.reichelt.de) | Accessories for Tier 2 controller setup |
+| **ESP32 DevKit C** | €12-18 | [reichelt.de](https://www.reichelt.de) · [amazon.de](https://www.amazon.de) | WiFi MCU, 2 UARTs for Modbus RS485, runs ESPHome |
+| **MAX3485 RS485 Module** | €3-5 | [reichelt.de](https://www.reichelt.de) · [iot-shop.de](https://iot-shop.de) | Required for Modbus RTU to wallbox/inverter |
+| **USB power supply** | €5-10 | — | 5V USB power (can share outlet with iOKE868) |
 
-| Tier | Total Hardware Cost (per household) |
-|------|-------------------------------------|
-| **Tier 1** (ESP32 + RS485 + PSU) | **~€20-25** |
-| **Tier 2** (RPi Zero 2W kit + RS485) | **~€45-55** |
-| **Tier 3** (Existing HA) | **~€0** |
+| Component | Cost |
+|-----------|------|
+| **ESP32 + RS485 + PSU** | **~€20-25** |
+
+For households requiring OCPP or Modbus TCP control (wallboxes without Modbus RTU), see the RPi-based alternative controller in Section 12.
 
 ### 5.6 Optimization Software (Phase 2)
 
@@ -1155,13 +890,10 @@ Each component was evaluated against the following criteria:
 | **Central Total** | | | | **€733** |
 | | | | | |
 | Sensor (per household) | IMST iOKE868 + USB PSU | €119 + €7.50 | 1 | **€126.50** |
-| Local Controller (Tier 1) | ESP32 + RS485 + PSU | €20-25 | 1 | **€20-25** |
-| Local Controller (Tier 2) | RPi Zero 2W kit + RS485 | €45-55 | 1 | **€45-55** |
+| Local Controller | ESP32 + RS485 + PSU | €20-25 | 1 | **€20-25** |
 | Smart Plug (Phase 2, optional) | Shelly Plus Plug S | €18-21 | 1 | **€18-21** |
-| **Per Household — Tier 1 (Phase 1)** | | | | **~€147-152** |
-| **Per Household — Tier 2 (Phase 1)** | | | | **~€172-182** |
-| **Per Household — cumul. Tier 1 (Phase 1+2)** | | | | **~€166-173** |
-| **Per Household — cumul. Tier 2 (Phase 1+2)** | | | | **~€191-203** |
+| **Per Household (Phase 1)** | | | | **~€147-152** |
+| **Per Household (Phase 1+2)** | | | | **~€166-173** |
 
 **Central cost exceeds the €300 target.** This is driven by the UG67 gateway (€588). Options to reduce:
 - Use Dragino DLOS8N (€225) instead of UG67 → central total ~€370, but risks at scale
@@ -1185,13 +917,10 @@ Each component was evaluated against the following criteria:
 | | | | |
 | Sensor per household | €100-150 | €119 (iOKE868) | ✓ Within budget |
 | Power supply (optional) | €0-20 | €7.50 (USB PSU) | ✓ Within budget |
-| Local Controller (Tier 1) | €15-25 | €20-25 (ESP32) | ✓ Within budget |
-| Local Controller (Tier 2) | €30-60 | €45-55 (RPi Zero 2W) | ✓ Within budget |
-| **Per Household — Tier 1 (Phase 1)** | **≤ €200** | **~€147-152** | ✓ Within budget |
-| **Per Household — Tier 2 (Phase 1)** | **≤ €200** | **~€172-182** | ✓ Within budget |
+| Local Controller | €15-25 | €20-25 (ESP32) | ✓ Within budget |
+| **Per Household (Phase 1)** | **≤ €200** | **~€147-152** | ✓ Within budget |
 | Smart Plug (Phase 2, optional) | €0-50 | €18-21 | ✓ Within budget |
-| **Per Household — Tier 1 (cumul. Phase 1+2)** | **≤ €350** | **~€166-173** | ✓ Within budget |
-| **Per Household — Tier 2 (cumul. Phase 1+2)** | **≤ €350** | **~€191-203** | ✓ Within budget |
+| **Per Household (Phase 1+2)** | **≤ €350** | **~€166-173** | ✓ Within budget |
 
 **Note:** Central total exceeds the €300 target primarily due to the Milesight UG67 gateway (€588). See Section 5.7 for cost reduction options.
 
@@ -1211,9 +940,8 @@ Each component was evaluated against the following criteria:
 - Install gateway in central location to maximize range
 - Bulk purchase sensors for volume discount
 - Leverage existing devices (wallboxes, PV) already owned by households
-- Use open-source software (EVCC, Home Assistant) to avoid licensing costs
-- Choose the right local controller tier: Tier 1 (ESP32) for basic load shedding; Tier 2 (RPi) for full PV+battery+wallbox integration
-- Deploy Tier 3 (existing HA) whenever a household already runs Home Assistant — zero additional hardware cost
+- Use open-source software (ESPHome, Home Assistant) to avoid licensing costs
+- If a household already runs Home Assistant, consider integrating directly via Remote HA add-on instead of adding an ESP32
 
 ---
 
@@ -1249,25 +977,24 @@ Each component was evaluated against the following criteria:
 
 | Issue | Likely Cause | Solution |
 |-------|--------------|----------|
-| Wallbox not responding | OCPP connection failed | Check network, credentials; restart EVCC and wallbox |
-| Wallbox frequent disconnects | Manufacturer firmware issue | Known problem with Wallbox Pulsar Plus firmware 6.7.x — try local Modbus instead of OCPP |
+| Wallbox not responding | Modbus connection failed | Check RS485 A/B polarity; verify termination resistors; check USB power on ESP32 |
+| Wallbox only supports OCPP | No OCPP support on ESP32 | Use RPi-based alternative controller (Section 12) |
 | Price data not updating | API rate limit | Check integration logs; EPEX API may throttle |
-| Optimization causing loss | Wrong household config | Verify tariff type setting in HAEO/HA |
+| Optimization causing loss | Wrong household config | Verify tariff type setting in HA |
 | §14a not working | No Smart Meter (iMSys) | Requires iMSys installation for Module 3 |
-| Watchdog not firing | MQTT topic mismatch | Verify shed command topic matches local controller subscription |
-| Watchdog Stage 1 not reducing load | Local controller not processing constraint | Subscribe to `lem-netz/house/<id>/status/compliance` to see if controller acknowledges constraint |
-| Watchdog Stage 2 shed not executed | Local controller offline | Check heartbeat on `lem-netz/house/<id>/heartbeat`; if stale, check controller power/WiFi |
+| Watchdog not firing | MQTT topic mismatch | Verify `control/max_power` topic matches ESP32 subscription |
+| Watchdog Stage 1 not reducing load | ESP32 not receiving limit | Subscribe to `lem-netz/house/<id>/control/#` to verify messages arrive |
+| Watchdog Stage 2 shed not executed | ESP32 offline | Check WiFi connection; verify sensor data still arriving via LoRaWAN |
 | False positive overload | Sensor drift | Check virtual transformer calculation — sum of all households |
-| Shed acknowledgement missing | Local controller crashed | Restart controller; check watchdog failure detection in Section F.0.5 |
-| Household exceeding constraint | Local optimizer malfunction | Verify local controller correctly sums device power and compares to `constraint/max_power`. Tier 1: check ESPHome lambda logic. Tier 2: check Python agent logs. |
+| Shed not acknowledged | ESP32 crashed | Restart ESP32; check ESPHome logs |
 
 ### 8.3 Diagnostics
 
 1. **Check sensor LED status** - Should indicate join and transmit
 2. **Check gateway web interface** - Shows joined devices and uplink count
-3. **Check MQTT topic** - Subscribe to `lem-netz/#` for all LEM messages
-4. **Check local controller heartbeat** - Subscribe to `lem-netz/house/+/heartbeat` to verify all controllers are alive
-5. **Check wallbox Modbus** - On local controller, run Modbus scanner to verify device responds
+3. **Check MQTT topics** - Subscribe to `lem-netz/#` for all LEM messages
+4. **Check ESPHome logs** - Connect to ESP32 via ESPHome dashboard or serial
+5. **Check wallbox Modbus** - On ESP32, verify Modbus register reads in ESPHome logs
 6. **Check Home Assistant logs** - Settings → System → Logs
 7. **Check price integration** - Verify EPEX/provider connectivity
 
@@ -1305,7 +1032,82 @@ Each component was evaluated against the following criteria:
 
 ---
 
-## 11. Appendix: Reference Links
+## 11. Appendix A: Optimization Tools
+
+The core architecture (watchdog + ESP32 limit enforcement) handles infrastructure safety. For revenue-aware optimization, these open-source tools can be added to Home Assistant.
+
+### 11.1 HAEO (Recommended Primary Optimizer)
+
+[Home Assistant Energy Optimizer](https://github.com/hass-energy/haeo) — linear programming optimizer:
+
+- 48-hour horizon, 5-minute resolution
+- Supports: batteries, solar, grid, constant/forecast loads, multi-node networks
+- Constrained by infrastructure limits (transformer capacity is a configurable constraint)
+- Automatically respects household pricing models
+- Install via HACS → Custom repositories → `https://github.com/hass-energy/haeo`
+- Requires HiGHS solver (bundled)
+
+```
+Example HAEO network model:
+  Grid (import/export limits, pricing)
+    └─ Node: Street Transformer (max 10kVA)
+         ├─ Household 1: Solar + Battery + Charger (EEG tariff)
+         ├─ Household 2: Battery only (dynamic pricing)
+         ├─ Household 3: Solar only (fixed tariff)
+         └─ ...
+```
+
+### 11.2 AkkudoktorEOS (Predictive Add-on)
+
+[AkkudoktorEOS](https://github.com/akkudoktor-eos/eos) — designed for German energy market:
+- Predictive models for EPEX Spot prices
+- Load forecasting based on historical data
+- Optimizes: batteries, heat pumps, EV charging
+- Available as Home Assistant add-on
+
+### 11.3 EVCC (EV Charging)
+
+[EVCC](https://github.com/evcc-io/evcc) — EV charging + energy management:
+- 240+ manufacturers, OCPP server
+- HA add-on (+390 HA sensors)
+- Useful if wallboxes require OCPP control (see Appendix B)
+
+### 11.4 Per-Household Configuration (for HAEO/AkkudoktorEOS)
+
+| Household Type | Configuration | Goal |
+|---------------|--------------|------|
+| No PV, fixed tariff | Set import price to fixed rate | Minimize cost |
+| PV only (EEG) | Set export price to feed-in rate | Maximize self-consumption |
+| PV + Battery (Dynamic) | Enable dynamic rates | Arbitrage |
+| Battery only | Enable dynamic import, export=0 | Charge cheap, discharge peak |
+| Heat pump | Add §14a schedule | Shift to low-tariff periods |
+
+---
+
+## 12. Appendix B: Alternative Controller (RPi for OCPP/Modbus TCP)
+
+If a household has devices that only support **OCPP** (e.g., Wallbox Pulsar Plus) or **Modbus TCP** (no RS485 port), the ESP32 cannot interface with them. Use a Raspberry Pi Zero 2W as the local controller instead.
+
+| Component | Purpose | Cost |
+|-----------|---------|------|
+| Raspberry Pi Zero 2W | WiFi + quad-core, runs Python agent | €18-22 |
+| MicroSD card (32GB) | OS and data buffering | €8-12 |
+| USB power supply | 5V power | €5-10 |
+| USB RS485 adapter | Optional, for Modbus RTU devices | €8-12 |
+| **Total** | | **€39-56** |
+
+**Setup:**
+1. Flash Raspberry Pi OS Lite to SD card
+2. Install Python agent (pre-built script from central server repo)
+3. Configure `config.yaml` with household ID, MQTT broker URL, device list
+4. Set up systemd service for auto-start
+5. Use EVCC as OCPP client for wallbox control if needed
+
+The RPi uses the same MQTT topics as the ESP32 (`lem-netz/house/<id>/control/*`, `sensor/*`, `status/*`). All watchdog, price integration, and optimization logic on the central server remains identical — only the local controller hardware changes.
+
+---
+
+## 13. Appendix C: Reference Links
 
 ### Regulatory References
 - BSI TR-03109-1: [BSI LMN Interface](https://www.bsi.bund.de)
@@ -1329,5 +1131,5 @@ Each component was evaluated against the following criteria:
 
 *This document provides implementation guidance for Phase 1 and Phase 2. It supports the requirements specification by showing how to achieve the defined goals while maintaining economic fairness across all household types.*
 
-**Document Version:** 3.4
+**Document Version:** 4.0
 **Last Updated:** May 2026

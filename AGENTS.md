@@ -1,41 +1,26 @@
-# LEM-Netz Repository
+# LEM-Netz
 
-This repository contains specification documents for a decentralized energy management system (German: "dezentrales Energiemanagementsystem").
-
-## Project Status
-
-- **Phase 1**: In planning - Data collection via Smart Meter → LoRaWAN → Home Assistant
-- **Phase 2**: Planning - Control integration with revenue-aware optimization
-- **Focus**: Multi-household energy monitoring with economic fairness across different pricing models
-
-## Documents
-
-| File | Description |
-|------|-------------|
-| `Requirements_Specification_LEM-Netz.md` | Functional and non-functional requirements (v3.0 - includes Phase 2) |
-| `LEM-Netz_Technisches_Konzept.md` | Technical concept, installation guide, implementation steps (v3.0) |
-
-## Key Specifications
-
-- **Goal**: Neighborhood-level energy optimization via wireless (868 MHz)
-- **Architecture**: Edge (sensors) → Gateway (outdoor) → Central (Home Assistant)
-- **Cost Targets**: ~€300 central + ~€200/household (Phase 1), ~€350 total (Phase 2)
-- **Coverage**: Up to 100-1000 households over 1000+ meters (outdoor IP67 gateway)
-
-## German Market Focus
-
-The system supports diverse household configurations common in Germany:
-- Fixed EEG feed-in tariffs
-- Dynamic pricing (Tibber, aWATTar, Ostrom)
-- §14a EnWG variable network charges
-- PV + battery systems
-- EV/wallbox integration
-
-**Critical**: Optimization must NOT cause financial disadvantage to any household type.
+Documentation-only repository (German decentralized energy management). Phase 1 (data collection) in planning; Phase 2 (control integration) in planning.
 
 ## No Code
 
-This is a documentation-only repository. Do not attempt to:
-- Run builds, tests, or linters
-- Create code or configuration files
-- Look for entrypoints or package managers
+This repo contains only Markdown specs. Do **not** run builds, tests, linters, or look for entrypoints/package managers.
+
+## Documents
+
+| File | What it contains |
+|------|-----------------|
+| `README.md` | Project overview, supported household types, phases, cost targets |
+| `Requirements_Specification_LEM-Netz.md` | Functional/non-functional requirements v3.0 (Phase 1+2), 604 lines |
+| `LEM-Netz_Technical_Concept.md` | Implementation guide v3.4, component selection, MQTT topics, 1333 lines |
+
+## Domain Constraints (agents constantly miss these)
+
+- **Infrastructure safety first**: transformer limits are non-negotiable; optimization is suspended when limits require it.
+- **Economic fairness**: optimization must NOT financially disadvantage any household type (fixed tariff, EEG feed-in, dynamic pricing, §14a EnWG, PV+battery — all must break even or benefit).
+- **German market**: supports EEG, Tibber/aWATTar/Ostrom, §14a, EPEX Spot. All data stays local (GDPR, no cloud dependency).
+- **Architecture**: Edge (iOKE868 LoRaWAN sensors) → Outdoor Gateway (Milesight UG67, IP67) → Central (Home Assistant + Mosquitto + InfluxDB). Phase 2 adds a single ESP32/ESPHome per household bridging Modbus/WiFi devices to MQTT. One controller type for all households.
+
+## Repo Structure
+
+No subdirectories, no generated files. The two spec docs are the authoritative sources. If they conflict, trust the Technical Concept (it is implementation-focused and more recent v3.4 vs v3.0).
