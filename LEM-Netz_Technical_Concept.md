@@ -8,6 +8,37 @@
 
 ---
 
+## Table of Contents
+
+### Phase 1
+- [1. Implementation Approach](#1-implementation-approach)
+- [2. Technical Architecture](#2-technical-architecture)
+- [3. Implementation Steps - Phase 1](#3-implementation-steps---phase-1)
+  - [Phase A: Central Infrastructure Setup](#phase-a-central-infrastructure-setup)
+  - [Phase B: Household Sensor Installation](#phase-b-household-sensor-installation)
+  - [Phase C: Data Verification](#phase-c-data-verification)
+  - [3.1 Offline Architecture](#31-offline-architecture-fr06)
+  - [3.2 Per-Household Local Integration](#32-per-household-local-integration)
+
+### Phase 2
+- [4. Implementation Steps - Phase 2](#4-implementation-steps---phase-2)
+  - [Phase D: Price Integration](#phase-d-price-integration)
+  - [Phase E: Control Integration](#phase-e-control-integration-via-local-controller)
+  - [Phase F: Revenue-Aware Optimization / Watchdog](#phase-f-revenue-aware-optimization)
+
+### Reference
+- [5. Product Selection](#5-product-selection-reference-only)
+- [6. Cost Implementation Guide](#6-cost-implementation-guide)
+- [7. Regulatory Compliance Checklist](#7-regulatory-compliance-checklist)
+- [8. Troubleshooting Guide](#8-troubleshooting-guide)
+- [9. German Market Reference](#9-german-market-reference)
+- [10. Future Expansion Path](#10-future-expansion-path)
+- [11. Appendix A: Optimization Tools](#11-appendix-a-optimization-tools)
+- [12. Appendix B: Alternative Controller](#12-appendix-b-alternative-controller-rpi-for-ocppmodbus-tcp)
+- [13. Appendix C: Reference Links](#13-appendix-c-reference-links)
+
+---
+
 ## 1. Implementation Approach
 
 This document provides a technical implementation path for Phase 1 (Data Collection) and Phase 2 (Control Integration) as defined in the Requirements Specification. It describes **how** to achieve the **what** defined in the requirements.

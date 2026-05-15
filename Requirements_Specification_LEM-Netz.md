@@ -8,6 +8,41 @@
 
 ---
 
+## Table of Contents
+
+- [1. Problem Statement](#1-problem-statement)
+- [2. Scope](#2-scope)
+  - [2.1 Phase 1: Data Collection](#21-phase-1-data-collection-current)
+  - [2.2 Phase 2: Control Integration](#22-phase-2-control-integration-planning)
+- [3. Functional Requirements](#3-functional-requirements)
+  - [3.1 Data Acquisition](#31-data-acquisition-phase-1)
+  - [3.2 Data Transmission](#32-data-transmission-phase-1)
+  - [3.3 Data Processing](#33-data-processing-phase-1)
+  - [3.4 System Management](#34-system-management-phase-1)
+  - [3.5 Infrastructure Safety](#35-infrastructure-safety-constraints-phase-2---top-priority)
+  - [3.6 Pricing Model Support](#36-pricing-model-support-phase-2)
+  - [3.7 Control Capabilities](#37-control-capabilities-phase-2)
+- [4. Non-Functional Requirements](#4-non-functional-requirements)
+  - [4.1 Cost](#41-cost-requirements)
+  - [4.2 Technical](#42-technical-requirements)
+  - [4.3 Usability](#43-usability-requirements)
+  - [4.5 Priority Hierarchy](#45-priority-hierarchy-critical)
+  - [4.6 Economic Fairness](#46-economic-fairness-requirements)
+- [5. Regulatory Requirements - Germany](#5-regulatory-requirements---germany)
+  - [5.1 Smart Meter Interface](#51-smart-meter-interface)
+  - [5.2 Grid Connection](#52-grid-connection)
+  - [5.3 Energy Market](#53-energy-market-regulations)
+  - [5.4 Data Protection](#54-data-protection)
+  - [5.5 Radio Equipment](#55-radio-equipment)
+- [6. German Market Pricing Models](#6-german-market-pricing-models)
+- [7. General Architecture](#7-general-architecture)
+- [8. Cost Targets](#8-cost-targets)
+- [9. Future Phases (Roadmap)](#9-future-phases-roadmap)
+- [10. Glossary](#10-glossary)
+- [11. Revision History](#11-revision-history)
+
+---
+
 ## 1. Problem Statement
 
 ### 1.1 Background
