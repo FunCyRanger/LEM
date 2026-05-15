@@ -133,12 +133,9 @@ Phase 2 adds intelligent control capabilities while ensuring economic fairness a
 **FR02: Energy Measurement**
 - The system SHALL measure cumulative energy consumption (in kilowatt-hours) at each household.
 - The measurement SHALL be taken automatically at configurable intervals.
-- *Rationale:* Required for billing reconciliation and consumption analysis.
-
-**FR03: Sampling Rate**
-- The system SHALL support transmission intervals of 15 seconds or less when powered via USB.
-- The system SHALL support configurable transmission intervals (e.g., 1 minute, 5 minutes, 15 minutes).
-- *Rationale:* Fast intervals needed for dynamic load management in future phases.
+- The system SHALL support configurable transmission intervals (minimum: 1 minute, default: 2 minutes, maximum: 15 minutes).
+- The default interval of 2 minutes SHALL support at least 300 households within LoRaWAN duty cycle limits.
+- *Rationale:* 2-minute interval balances load management responsiveness with LoRaWAN capacity constraints.
 
 ### 3.2 Data Transmission (Phase 1)
 

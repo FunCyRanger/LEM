@@ -237,7 +237,7 @@ All households use the same bridge device: ESP32 + LoRa radio module. See Sectio
 - Connect IR optical read head to ESP32 UART1
 - Connect LoRa radio module to ESP32 SPI bus (MOSI, MISO, SCK, NSS, DIO0, RST)
 - Register on LoRaWAN network server: assign DevEUI, AppKey, AppEUI
-- Set uplink interval (default: 1-5 min) in firmware config
+- Set uplink interval (default: 2 min) in firmware config
 - Test: verify uplink data arrives at HA via MQTT topics `lem-netz/house/<id>/sensor/...`
 
 For households with devices requiring OCPP or Modbus TCP (not supported on ESP32), see the alternative controller setup in Section 12.
@@ -318,12 +318,12 @@ All household-to-central communication uses LoRaWAN 868 MHz. The Milesight UG67 
 
 | Data | Uplink Interval | Encoding | Size |
 |------|----------------|----------|------|
-| Smart meter power (W) | Every 1-5 min | 2-byte unsigned int | 2 bytes |
-| Wallbox power (W) | Every 1-5 min | 2-byte signed int | 2 bytes |
-| PV production (W) | Every 1-5 min | 2-byte unsigned int | 2 bytes |
-| Battery SoC (%) | Every 1-5 min | 1-byte unsigned int | 1 byte |
-| Battery power (W) | Every 1-5 min | 2-byte signed int | 2 bytes |
-| Smart plug power (W) | Every 1-5 min | 2-byte unsigned int | 2 bytes |
+| Smart meter power (W) | Every 2 min | 2-byte unsigned int | 2 bytes |
+| Wallbox power (W) | Every 2 min | 2-byte signed int | 2 bytes |
+| PV production (W) | Every 2 min | 2-byte unsigned int | 2 bytes |
+| Battery SoC (%) | Every 2 min | 1-byte unsigned int | 1 byte |
+| Battery power (W) | Every 2 min | 2-byte signed int | 2 bytes |
+| Smart plug power (W) | Every 2 min | 2-byte unsigned int | 2 bytes |
 | Shed status | On event | 1-byte bitmask | 1 byte |
 
 Total typical payload: 6-12 bytes per uplink (well within LoRaWAN limits).
@@ -365,18 +365,9 @@ Every household uses the same bridge device: an **ESP32 with a LoRa radio module
 | **Total** | | **€38-68** |
 
 **Capabilities:**
-- LoRaWAN uplink: sends meter reading and device power data every 1-5 min
-- LoRaWAN downlink: receives `max_power` limits and `shed`/`restore` commands
-- IR optical: reads smart meter power/energy via SML/IEC 62056-21
-- Modbus RTU (RS485) for wallbox, PV inverter, battery BMS (±1-2 Modbus devices)
-- Local limit enforcement: stays within last received `max_power` by shedding loads in fixed priority
-- Data buffering: stores last readings during LoRaWAN outages
-- No WiFi dependency — uses LoRaWAN for all backhaul
+- LoRaWAN uplink: sends meter reading and device power data every 2 min
 
-**LoRaWAN configuration:**
-- Frequency band: 868 MHz (EU868, duty cycle 1%)
-- Spreading factor: SF7-SF12 adaptive (longer range = slower data)
-- Uplink interval: 1-5 minutes (adjustable per household)
+- Uplink interval: 2 min (default, adjustable 1-10 min per household)
 - Activation: OTAA (Over-The-Air Activation) with individual DevEUI/AppKey per device
 
 **Setup:**
@@ -406,12 +397,12 @@ The UG67 acts as the protocol translator: LoRaWAN ↔ MQTT. On the household sid
 
 | Setting | Value | Note |
 |---------|-------|------|
-| Report interval | 1-5 min | Adjustable per household |
+| Report interval | 2 min (default) | Adjustable 1-10 min per household |
 | Duty cycle limit | 1% (EU868) | ~36 seconds transmit per hour |
 | Typical airtime per uplink | ~50-200 ms | Depends on SF setting |
-| Max uplinks per hour (SF7) | ~720 | More than sufficient at 5 min intervals |
+| Max uplinks per hour (SF7) | ~720 | More than sufficient at 2 min intervals |
 
-At a 5-minute interval (12 uplinks/hour), the duty cycle usage is negligible (&lt;0.1%). For faster reporting (1-minute intervals, 60 uplinks/hour), use lower spreading factors (SF7-9) to keep airtime short.
+At a 2-minute interval (30 uplinks/hour), the duty cycle usage is under 0.4%. Even at 1-minute intervals (60 uplinks/hour), SF7-9 stay well within the 1% limit.
 
 ### 3.2.4 Device Support on Bridge
 
@@ -433,14 +424,14 @@ The system uses a **constraint-based control model**: the central system sets ha
 
 **Latency and safety margin:**
 
-Because the bridge device reports power data every 1-5 minutes (LoRaWAN uplink), the central watchdog cannot detect overloads in real time. The system compensates with a wider safety margin:
+Because the bridge device reports power data every 2 minutes (LoRaWAN uplink), the central watchdog cannot detect overloads instantly. The system compensates with a moderate safety margin:
 
 | Parameter | WiFi/MQTT model (old) | LoRaWAN model (this design) |
 |-----------|----------------------|---------------------------|
-| Max detection delay | ~1 second | Up to 5 minutes |
-| Watchdog trigger threshold | 80% | 65% (or lower depending on transformer headroom) |
-| Watchdog recovery threshold | 60% | 50% |
-| Stage 1 → Stage 2 wait | 30 seconds | 5-10 minutes (allowing for next uplink) |
+| Max detection delay | ~1 second | Up to 2 minutes |
+| Watchdog trigger threshold | 80% | 75% |
+| Watchdog recovery threshold | 60% | 55% |
+| Stage 1 → Stage 2 wait | 30 seconds | 3 minutes (allowing for LoRaWAN downlink cycle) |
 
 These thresholds are configurable per installation. The key tradeoff: simpler deployment (no WiFi per household) for slightly reduced transformer utilization.
 
@@ -559,7 +550,7 @@ input_number:
 │                                                                         │
 │  ESP32 handles:                                                         │
 │  • Protocol translation (Modbus RTU, IR optical)                       │
-│  • LoRaWAN uplink: sensor data every 1-5 min                          │
+│  • LoRaWAN uplink: sensor data every 2 min                           │
 │  • LoRaWAN downlink: receive limits and commands                       │
 │  • Hard limit enforcement: stay within last received max_power         │
 │  • Data buffering during LoRaWAN outages                               │
@@ -594,7 +585,7 @@ No compliance reporting or heartbeat — the central system monitors actual load
 
    | Data Point | Encoding | Interval |
    |------------|----------|----------|
-   | Wallbox power (W) | 2-byte signed int | Every 1-5 min |
+   | Wallbox power (W) | 2-byte signed int | Every 2 min |
    | Wallbox energy (kWh) | 4-byte unsigned int | Every 5 min |
    | Wallbox status | 1-byte enum | On change |
    | Shed confirmation | 1-byte flag | On watchdog command |
@@ -649,7 +640,7 @@ Smart plugs must support Modbus RTU (RS485) — the bridge device has no WiFi:
 
    | Data Point | Encoding | Interval |
    |------------|----------|----------|
-   | PV production (W) | 2-byte unsigned int | Every 1-5 min |
+   | PV production (W) | 2-byte unsigned int | Every 2 min |
    | PV daily yield (kWh) | 4-byte unsigned int | Every 5 min |
 
 3. **Control**
@@ -673,8 +664,8 @@ Smart plugs must support Modbus RTU (RS485) — the bridge device has no WiFi:
 
    | Data Point | Encoding | Interval |
    |------------|----------|----------|
-   | Battery SoC (%) | 1-byte unsigned int | Every 1-5 min |
-   | Battery power (W) | 2-byte signed int (negative = charging) | Every 1-5 min |
+   | Battery SoC (%) | 1-byte unsigned int | Every 2 min |
+   | Battery power (W) | 2-byte signed int (negative = charging) | Every 2 min |
 
 3. **Control**
    - The ESP32 reads battery state for local load management decisions
@@ -689,10 +680,10 @@ Smart plugs must support Modbus RTU (RS485) — the bridge device has no WiFi:
 The watchdog operates in **two stages**: first by tightening `control/max_power` limits (allowing ESP32s to self-regulate), then by direct shed commands if the limit tightening does not resolve the overload.
 
 ```
-Central HA detects overload (80%)
+Central HA detects overload (75%)
   │
-  ├─ Stage 1: control/max_power = reduced_limit ──► ESP32s shed loads autonomously
-  │     Wait 30s
+  ├─ Stage 1: control/max_power = reduced_limit ──► LoRaWAN downlink ──► ESP32s shed loads
+  │     Wait 3 min
   │
   ├─ Stage 2: control/shed ──► Immediate load shed on all households
   │     (only if still overloaded after Stage 1)
@@ -706,11 +697,11 @@ Central HA detects overload (80%)
 
 | Step | Action | Detail |
 |------|--------|--------|
-| 1.1 | Detect threshold | `sensor.virtual_transformer` exceeds 80% (8000W for 10kVA) |
+| 1.1 | Detect threshold | `sensor.virtual_transformer` exceeds 75% (7500W for 10kVA) |
 | 1.2 | Calculate fair share | Reduce each household's `max_power` proportionally |
-| 1.3 | Publish limit | `lem-netz/house/<id>/control/max_power` = new limit per household |
-| 1.4 | Wait | 30-second window for ESP32s to self-regulate |
-| 1.5 | Check | If total < 80% → resolved. If still > 80% → proceed to Stage 2 |
+| 1.3 | Publish limit via MQTT → UG67 → LoRaWAN downlink | `lem-netz/house/<id>/control/max_power` = new limit per household |
+| 1.4 | Wait | 3 minutes (allow LoRaWAN downlink cycle) |
+| 1.5 | Check | If total < 75% → resolved. If still > 75% → proceed to Stage 2 |
 
 **Stage 2 — Direct Shed (escalation, only if Stage 1 fails):**
 
@@ -718,7 +709,7 @@ Central HA detects overload (80%)
 |------|--------|--------|
 | 2.1 | Send shed | `lem-netz/house/<id>/control/shed` to ALL households |
 | 2.2 | Acknowledge | ESP32s confirm via `status/shed` |
-| 2.3 | Verify | If still > 80%, alert and escalate manually |
+| 2.3 | Verify | If still > 75%, alert and escalate manually |
 | 2.4 | Alert | Create persistent notification and log event |
 
 #### F.0.2 Central Configuration
@@ -750,17 +741,17 @@ input_number:
 #### F.0.3 Watchdog Automation (Central HA)
 
 ```yaml
-# Stage 1: Tighten limits when transformer exceeds 80%
+# Stage 1: Tighten limits when transformer exceeds 75%
 automation:
   - alias: "Transformer Stage 1 — Limit Tightening"
     trigger:
       - platform: numeric_state
         entity_id: sensor.virtual_transformer
-        above: 8000
+        above: 7500
     mode: single
     action:
       - variables:
-          overload_factor: "{{ 8000 / states('sensor.virtual_transformer') | float }}"
+          overload_factor: "{{ 7500 / states('sensor.virtual_transformer') | float }}"
       - service: mqtt.publish
         data:
           topic: "lem-netz/house/1/control/max_power"
@@ -771,11 +762,11 @@ automation:
           topic: "lem-netz/house/2/control/max_power"
           payload: '{"value": {{ (2000 * overload_factor) | int }}, "unit": "W"}'
           qos: 2
-      - delay: "00:00:30"
+      - delay: "00:03:00"
       - if:
           - condition: numeric_state
             entity_id: sensor.virtual_transformer
-            above: 8000
+            above: 7500
         then:
           - service: mqtt.publish
             data:
@@ -785,7 +776,7 @@ automation:
 ```
 
 ```yaml
-# Stage 2: Direct shed (triggered by escalation or 95% threshold)
+# Stage 2: Direct shed (triggered by Stage 1 escalation or critical threshold)
 automation:
   - alias: "Transformer Stage 2 — Direct Shed"
     trigger:
@@ -818,7 +809,7 @@ automation:
     trigger:
       - platform: numeric_state
         entity_id: sensor.virtual_transformer
-        below: 6000
+        below: 5500
     mode: single
     action:
       - service: mqtt.publish
@@ -909,7 +900,7 @@ Each component was evaluated against the following criteria:
 |---------|-------------------|-------------|---------------|
 | **IMST iOKE868** | €119-129 (plus €7.50 USB power supply or €10 battery holder) | [shop.imst.de](https://shop.imst.de/wireless-solutions/lora-products/69/ioke868-lorawan-smart-metering-kit) · [iot-shop.de](https://iot-shop.de/shop/category/marke-imst-954) €126 | SML protocol, 868 MHz LoRaWAN, magnetic mount, USB or battery power, external antenna (magnetic base, 2m cable), configurable TX interval |
 | **KLAX 2.0** | €149.90 | [iot-shop.de](https://iot-shop.de/shop/klax-2-0-lorawan-sml-opto-head-for-modern-power-meters-4365) | SML protocol, 868 MHz LoRaWAN, battery-powered (AA lithium, replaceable), IP21, compact (96×35×40mm), LoRaWAN Class A |
-| **Fludia FM432ir** | €156 (direct) · €184.33 (iot-shop.de) | [fludia.com](https://shop.fludia.com/shop/en/isoUS/26-67-fm432ir-iot-sensor-for-german-electricity-meters-lorawan.html) · [iot-shop.de](https://iot-shop.de/shop/fl-fm432ir-fludia-fm432ir-lorawan-sml-optokopf-fur-moderne-stromzahler-6180) | SML protocol, 868 MHz LoRaWAN (also LTE-M/NB-IoT variants), battery-powered, 1-min or 15-min interval, 3.5-8 year battery life, made in France |
+| **Fludia FM432ir** | €156 (direct) · €184.33 (iot-shop.de) | [fludia.com](https://shop.fludia.com/shop/en/isoUS/26-67-fm432ir-iot-sensor-for-german-electricity-meters-lorawan.html) · [iot-shop.de](https://iot-shop.de/shop/fl-fm432ir-fludia-fm432ir-lorawan-sml-optokopf-fur-moderne-stromzahler-6180) | SML protocol, 868 MHz LoRaWAN (also LTE-M/NB-IoT variants), battery-powered, configurable 1-15 min interval, 3.5-8 year battery life, made in France |
 
 **Recommendation:** IMST iOKE868 is the most cost-effective choice for Phase 1. It offers flexible power options (USB or battery), external antenna for metallic cabinets, and the lowest per-unit cost. KLAX 2.0 is a solid battery-only alternative at €149.90. Fludia FM432ir offers the longest battery life but at higher cost.
 
