@@ -2,8 +2,8 @@
 
 ## Implementation Guide for Phase 1 + Phase 2
 
-**Version:** 3.0
-**Status:** Planning
+**Version:** 3.1
+**Status:** Review (incorporating open-source optimization recommendations)
 **Purpose:** Translate Requirements into Implementation
 
 ---
@@ -228,21 +228,55 @@ sensor:
 
 ---
 
+## 3.1 Offline Architecture (FR06)
+
+The system SHALL remain functional without internet. Here is how each layer handles offline scenarios:
+
+| Layer | Component | Offline Behavior | Data Retention |
+|-------|-----------|-----------------|----------------|
+| Edge | iOKE868 sensor | Continues measuring and transmitting; no store-and-forward | Last reading only (no buffer) |
+| Gateway | Milesight UG67 | Continues receiving LoRa packets; forwards when connection restored | Built-in NS queues data |
+| MQTT | Mosquitto broker | All local, no internet dependency | Retained messages on topics |
+| Server | Home Assistant | Continues running; dashboard and automations work locally | Full database local |
+
+**No component requires internet for core operation.** The price optimizations in Phase 2 require intermittent internet for EPEX/Tibber data, but the system degrades gracefully: if price data is unavailable, optimization falls back to default charging patterns.
+
+---
+
 ## 4. Implementation Steps - Phase 2
 
 ### Phase D: Price Integration
 
-#### D.1 EPEX Spot Price Import
+#### D.1 Price Import via Home Assistant Integrations
 
-1. **Install Price Import Integration**
-   - Use Home Assistant EPEX Spot integration or custom integration
-   - Configure for German price zone (DE-LU)
-   - Set update frequency: 15 minutes (or hourly minimum)
+Three options exist for importing electricity prices, depending on the household's provider:
 
-2. **Configure Dynamic Provider Integration** (optional)
-   - If using Tibber, aWATTar, Ostrom: install provider-specific integration
-   - Import provider-specific prices if available
-   - OR use EPEX as fallback
+| Method | Provider | Updates | Cost | HACS? |
+|--------|----------|---------|------|-------|
+| **EPEX Spot** (free) | Any (ENTSO-E data) | Every 15-60 min | Free | Yes |
+| **Tibber official** | Tibber customers | 15-min intervals | Free (Tibber account) | Built-in |
+| **Tibber Prices** (advanced) | Tibber customers | 15-min + price ratings | Free | Yes |
+
+**Option 1: EPEX Spot (Recommended for non-Tibber users)**
+- GitHub: [`mampfes/ha_epex_spot`](https://github.com/mampfes/ha_epex_spot) (291 stars, MIT license)
+- Install via HACS → Integrations → Add repository → Install "EPEX Spot"
+- Configure for German price zone (DE-LU)
+- Provides sensors: market price, total price, daily avg, lowest/highest intervals
+- Built-in service `epex_spot.get_lowest_price_interval` for determining optimal start times
+- Update frequency: configurable (15-60 min)
+
+**Option 2: Tibber Official (Tibber customers)**
+- Built into Home Assistant — no HACS needed
+- Navigate to: Settings → Devices & Services → Add Integration → Search "Tibber"
+- Enter API token from [developer.tibber.com](https://developer.tibber.com)
+- Provides: current price, 24h forecast, consumption data, monthly stats
+
+**Option 3: Tibber Prices Custom Integration (Advanced)**
+- GitHub: [`jpawlowski/hass.tibber_prices`](https://github.com/jpawlowski/hass.tibber_prices)
+- 100+ sensors including price levels (VERY_CHEAP to VERY_EXPENSIVE)
+- Best price / peak price period detection
+- 15-min interval precision (quarter-hourly)
+- Install via HACS → Custom repositories
 
 #### D.2 Price Configuration per Household
 
@@ -274,16 +308,23 @@ input_number:
 #### E.1 Wallbox/EV Charger Integration
 
 1. **Supported Protocols**
-   - OCPP (via EVCC or custom integration)
+   - **OCPP** (via EVCC or custom integration)
    - Modbus TCP (for compatible wallboxes)
    - Manufacturer REST APIs
 
 2. **Integration Methods**
-   - EVCC Add-on (recommended for OCPP support)
+   - **EVCC Add-on** (recommended for OCPP) — HA add-on, 6K+ stars, browser config since v0.300
    - Home Assistant wallbox integrations
    - Custom MQTT integration
 
-3. **Configuration**
+3. **OCPP Compatibility Warning**
+   - Some wallbox manufacturers have OCPP implementation issues:
+     - **Wallbox Pulsar Plus/Pro**: Known OCPP disconnects every few days requiring restart of both wallbox and EVCC; firmware 6.7.x introduced daily forced reboots that break OCPP connections
+     - **General**: Prefer local Modbus/REST APIs over OCPP when available
+     - **EVCC** is actively developed (240+ manufacturers supported) — test compatibility before deployment
+   - See [EVCC GitHub Issues](https://github.com/evcc-io/evcc/issues) for known problems
+
+4. **Configuration**
    - Add wallbox to Home Assistant
    - Configure charging limits
    - Set up automation for price-based charging
@@ -328,81 +369,150 @@ input_number:
 
 ### Phase F: Revenue-Aware Optimization
 
-#### F.0 PRIORITY HIERARCHY (CRITICAL - IMPLEMENT FIRST)
+#### F.0 INFRASTRUCTURE SAFETY WATCHDOG (CRITICAL - IMPLEMENT FIRST)
 
-> **IMPLEMENTATION ORDER:** Infrastructure safety MUST be implemented BEFORE economic optimization.
+> **IMPLEMENTATION ORDER:** Infrastructure safety MUST be implemented BEFORE economic optimization. The watchdog is the enforcement mechanism.
 
-1. **FIRST: Infrastructure Safety**
-   - Implement transformer load monitoring (virtual transformer sensor)
-   - Set max threshold (e.g., 80% of transformer rating)
-   - Implement automatic load shedding when approaching threshold
-   - Test: Verify loads automatically reduce when threshold exceeded
+The virtual transformer YAML sensor from Phase C provides monitoring, but enforcement requires a **physical watchdog** that automatically sheds load:
 
-2. **SECOND: Economic Optimization** (only after #1 is verified)
-   - Implement per-household revenue model configuration
-   - Implement price-based optimization (within infrastructure limits)
-   - Test: Verify economic optimization works correctly
-
-> **IF INFRASTRUCTURE SAFETY AND ECONOMIC FAIRNESS CONFLICT:** Infrastructure safety ALWAYS wins. Suspend economic optimization when grid stability requires it.
-
-#### F.1 Optimization Logic Requirements
-
-**CRITICAL:** The optimization MUST respect different household revenue models, BUT only within infrastructure safety limits.
-
-1. **For Households with Fixed EEG Feed-in Tariff:**
-   - Maximize self-consumption (use PV power locally)
-   - Do NOT optimize for export price timing
-   - Priority: minimize grid import
-
-2. **For Households with Dynamic Pricing:**
-   - Charge devices when prices are low
-   - Discharge batteries when prices are high (arbitrage)
-   - Shift flexible loads to low-price periods
-
-3. **For Households with §14a Network Charges:**
-   - Shift consumption to low-tariff periods
-   - Avoid high-tariff peak periods
-   - Monitor grid load via virtual transformer
-
-#### F.2 Example Optimization Automation
-
-> **IMPORTANT:** All optimization automations MUST include a check for infrastructure limits BEFORE applying economic optimization. Never optimize if transformer is near capacity.
-
+**Watchdog Implementation:**
 ```yaml
-# Example: Price-aware EV charging WITH infrastructure safety check
+# Watchdog: Automatically disable loads when transformer is over 80%
 automation:
-  - alias: "Optimize EV Charging"
+  - alias: "Transformer Overload Protection"
     trigger:
-      - platform: time
-        at: "00:00:00"
-    condition:
-      # FIRST: Check infrastructure is safe
-      - condition: numeric_state
+      - platform: numeric_state
         entity_id: sensor.virtual_transformer
-        below: 8000  # e.g., 80% of 10kVA transformer
-      # SECOND: Check household has dynamic pricing
-      - condition: state
-        entity_id: input_select.household_1_tariff_type
-        state: "dynamic_pricing"
+        above: 8000  # 80% of 10kVA transformer
     action:
-      - service: shell_command.get_current_price
-      - service: evcc.set_charge_limit
+      - service: switch.turn_off
+        entity_id: "{{ states.switch | selectattr('attributes.transformer_protected', 'defined') | selectattr('attributes.transformer_protected', 'eq', true) | map(attribute='entity_id') | list }}"
+      - service: mqtt.publish
         data:
-          limit: >
-            {% if states('sensor.current_price') | float < 10 %}
-              100
-            {% elif states('sensor.current_price') | float < 20 %}
-              50
-            {% else %}
-              0
-            {% endif %}
+          topic: "lem-netz/watchdog/alert"
+          payload: "Transformer at {{ states('sensor.virtual_transformer') | int }}W — loads shed"
+          retain: true
+      - service: persistent_notification.create
+        data:
+          title: "⚠ Transformer Overload"
+          message: "Virtual transformer exceeded 80%. Non-essential loads have been disabled."
 ```
+
+Mark each controlled device with `transformer_protected: true` so the watchdog targets them:
+```yaml
+switch:
+  - platform: mqtt
+    name: "Household 1 Wallbox"
+    command_topic: "lem-netz/house1/wallbox/set"
+    state_topic: "lem-netz/house1/wallbox/state"
+    qos: 2
+    device_class: outlet
+    icon: mdi:ev-station
+  - platform: mqtt
+    name: "Household 2 Smart Plug"
+    command_topic: "lem-netz/house2/plug/set"
+    state_topic: "lem-netz/house2/plug/state"
+    qos: 2
+    device_class: outlet
+    icon: mdi:power-socket-de
+
+input_boolean:
+  transformer_protection_armed:
+    name: "Transformer Protection"
+    initial: on
+```
+
+On recovery (load drops below 60%), the watchdog re-enables loads:
+```yaml
+  - alias: "Transformer Load Recovery"
+    trigger:
+      - platform: numeric_state
+        entity_id: sensor.virtual_transformer
+        below: 6000  # 60% — hysteresis prevents oscillation
+    action:
+      - service: switch.turn_on
+        entity_id: "{{ states.switch | selectattr('attributes.transformer_protected', 'defined') | selectattr('attributes.transformer_protected', 'eq', true) | map(attribute='entity_id') | list }}"
+```
+
+#### F.1 Recommended Optimization Tools (Phase 2)
+
+Instead of hand-rolling YAML automations for each household, use existing open-source optimization tools:
+
+| Tool | Description | License | Integration | Best For |
+|------|-------------|---------|-------------|----------|
+| **HAEO** | Linear programming optimizer | MIT | HA custom integration | Battery + PV + grid optimization |
+| **AkkudoktorEOS** | Predictive price + load optimizer | Open source | HA add-on | German dynamic pricing optimization |
+| **EVCC** | EV charging + energy management | MIT | HA add-on (+390 HA sensors) | Wallbox coordination |
+| **forty-two-watts** | Multi-device battery coordinator | Open source | MQTT autodiscovery | Multi-inverter sites |
+
+#### F.2 HAEO (Recommended Primary Optimizer)
+
+[Home Assistant Energy Optimizer](https://github.com/hass-energy/haeo) — solves the optimization as a linear programming problem:
+
+- **48-hour horizon**, 5-minute resolution
+- Supports: batteries, solar, grid, constant/forecast loads, multi-node networks
+- **Constrained by infrastructure limits** (transformer capacity is a configurable constraint)
+- Automatically respects household pricing models
+- Install via HACS → Custom repositories → `https://github.com/hass-energy/haeo`
+- Requires HiGHS solver (bundled)
+
+```
+Example HAEO network model:
+  Grid (import/export limits, pricing)
+    └─ Node: Street Transformer (max 10kVA)
+         ├─ Household 1: Solar + Battery + Charger (EEG tariff)
+         ├─ Household 2: Battery only (dynamic pricing)
+         ├─ Household 3: Solar only (fixed tariff)
+         └─ ...
+```
+
+**Why HAEO over manual YAML:**
+- Proper optimization algorithm, not if-else rules
+- Constraint-aware (transformer capacity is a hard constraint)
+- 48-hour lookahead (not just current price)
+- Automatically adapts to changing conditions
+
+#### F.3 AkkudoktorEOS (Predictive Add-on)
+
+[AkkudoktorEOS](https://github.com/akkudoktor-eos/eos) — specifically designed for German energy market:
+
+- Predictive models for EPEX Spot prices
+- Load forecasting based on historical data
+- Optimizes: batteries, heat pumps, EV charging
+- Available as Home Assistant add-on
+- Designed by Dr. Andreas Schmitz (YouTube: @akkudoktor)
+
+#### F.4 Per-Household Optimization Rules (When using HAEO/AkkudoktorEOS)
+
+Configure each household's tariff type in the optimizer:
+
+| Household Type | HAEO Configuration | Optimization Goal |
+|---------------|--------------------|-------------------|
+| No PV, fixed tariff | Set import price to fixed rate | Minimize consumption cost |
+| PV only (EEG) | Set export price to feed-in rate | Maximize self-consumption |
+| PV + Battery (Dynamic) | Enable dynamic import/export rates | Arbitrage |
+| Battery only | Enable dynamic import, set export=0 | Charge cheap, discharge peak |
+| Heat pump | Add §14a network charge schedule | Shift to low-tariff periods |
 
 ---
 
 ## 5. Product Selection (Reference Only)
 
 *This section provides reference products that meet the requirements. Other products may also be suitable.*
+
+### 5.0 Evaluation Criteria
+
+Each component was evaluated against the following criteria:
+
+| Criterion | Weight | Definition |
+|-----------|--------|------------|
+| Cost | High | Meets budget target (€300 central, €200/household) |
+| Availability | High | Available from German distributors |
+| CE/RED Certification | Required | Legal requirement for EU operation |
+| Scalability | Medium | Supports 100-1000 households |
+| Maintainability | High | No specialized tools or expertise needed |
+| Offline Capability | High | Core function works without internet |
+| SML Protocol Support | Required | Must read German smart meters |
 
 ### 5.1 Energy Sensors (Phase 1)
 
@@ -434,6 +544,17 @@ automation:
 | Smart Plug | Shelly Plus, Shelly Pro | MQTT, REST |
 | PV Inverter | SolarEdge, SMA, Kostal | Modbus TCP |
 | Battery | BYD, Tesla, FoxESS | Modbus, REST |
+
+### 5.5 Optimization Software (Phase 2)
+
+| Software | License | Integration | Key Features |
+|----------|---------|-------------|--------------|
+| **HAEO** ([hass-energy/haeo](https://github.com/hass-energy/haeo)) | MIT | HA custom integration via HACS | Linear programming, 48h horizon, multi-node, constraint-aware |
+| **AkkudoktorEOS** ([akkudoktor-eos/eos](https://github.com/akkudoktor-eos/eos)) | Open source | HA add-on | German market focus, predictive price/load, battery/heat pump |
+| **EVCC** ([evcc-io/evcc](https://github.com/evcc-io/evcc)) | MIT | HA add-on (official) | 240+ manufacturers, OCPP server, browser config v0.300+ |
+| **forty-two-watts** ([frahlg/forty-two-watts](https://github.com/frahlg/forty-two-watts)) | Open source | MQTT autodiscovery | Multi-inverter, 48h MPC planner, Go binary on Pi |
+
+**Recommendation:** Start with HAEO for core optimization. Add AkkudoktorEOS for German price predictions. Use EVCC for wallbox OCPP control.
 
 ---
 
@@ -501,10 +622,13 @@ automation:
 
 | Issue | Likely Cause | Solution |
 |-------|--------------|----------|
-| Wallbox not responding | OCPP connection failed | Check network, credentials |
-| Price data not updating | API rate limit | Check integration logs |
-| Optimization causing loss | Wrong household config | Verify tariff type setting |
-| §14a not working | No Smart Meter (iMSys) | Requires iMSys installation |
+| Wallbox not responding | OCPP connection failed | Check network, credentials; restart EVCC and wallbox |
+| Wallbox frequent disconnects | Manufacturer firmware issue | Known problem with Wallbox Pulsar Plus firmware 6.7.x — try local Modbus instead of OCPP |
+| Price data not updating | API rate limit | Check integration logs; EPEX API may throttle |
+| Optimization causing loss | Wrong household config | Verify tariff type setting in HAEO/HA |
+| §14a not working | No Smart Meter (iMSys) | Requires iMSys installation for Module 3 |
+| Watchdog not firing | Entity ID mismatch | Verify all switches have `transformer_protected: true` |
+| False positive overload | Sensor drift | Check virtual transformer calculation — sum of all households
 
 ### 8.3 Diagnostics
 
@@ -559,11 +683,18 @@ automation:
 ### Technical References
 - MQTT Protocol: [mqtt.org](https://mqtt.org)
 - EPEX Spot: [EPEX SPOT](https://www.epexspot.com)
+- EPEX Spot HA Integration: [mampfes/ha_epex_spot](https://github.com/mampfes/ha_epex_spot)
 - OCPP: [OCPP Documentation](https://www.openchargealliance.org)
+- EVCC: [evcc-io/evcc](https://github.com/evcc-io/evcc)
+- EVCC HA Add-on: [evcc-io/hassio-addon](https://github.com/evcc-io/evcc-hassio-addon)
+- HAEO Optimizer: [hass-energy/haeo](https://github.com/hass-energy/haeo)
+- AkkudoktorEOS: [akkudoktor-eos/eos](https://github.com/akkudoktor-eos/eos)
+- forty-two-watts: [frahlg/forty-two-watts](https://github.com/frahlg/forty-two-watts)
+- Tibber HA Integration: [home-assistant.io/integrations/tibber](https://www.home-assistant.io/integrations/tibber/)
 
 ---
 
 *This document provides implementation guidance for Phase 1 and Phase 2. It supports the requirements specification by showing how to achieve the defined goals while maintaining economic fairness across all household types.*
 
-**Document Version:** 3.0
+**Document Version:** 3.1
 **Last Updated:** May 2026
