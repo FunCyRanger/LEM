@@ -2,7 +2,7 @@
 
 ## Implementation Guide for Phase 1 + Phase 2
 
-**Version:** 3.1
+**Version:** 3.2
 **Status:** Review (incorporating open-source optimization recommendations)
 **Purpose:** Translate Requirements into Implementation
 
@@ -516,34 +516,45 @@ Each component was evaluated against the following criteria:
 
 ### 5.1 Energy Sensors (Phase 1)
 
-| Product | Type | Key Features |
-|---------|------|---------------|
-| IMST iOKE868 | Optical IR + LoRaWAN | SML support, 868 MHz, magnetic mount |
-| ... | ... | ... |
+| Product | Price (incl. VAT) | German Shop | Key Features |
+|---------|-------------------|-------------|---------------|
+| **IMST iOKE868** | €119-129 (plus €7.50 USB power supply or €10 battery holder) | [shop.imst.de](https://shop.imst.de/wireless-solutions/lora-products/69/ioke868-lorawan-smart-metering-kit) · [iot-shop.de](https://iot-shop.de/shop/category/marke-imst-954) €126 | SML protocol, 868 MHz LoRaWAN, magnetic mount, USB or battery power, external antenna (magnetic base, 2m cable), configurable TX interval |
+| **KLAX 2.0** | €149.90 | [iot-shop.de](https://iot-shop.de/shop/klax-2-0-lorawan-sml-opto-head-for-modern-power-meters-4365) | SML protocol, 868 MHz LoRaWAN, battery-powered (AA lithium, replaceable), IP21, compact (96×35×40mm), LoRaWAN Class A |
+| **Fludia FM432ir** | €156 (direct) · €184.33 (iot-shop.de) | [fludia.com](https://shop.fludia.com/shop/en/isoUS/26-67-fm432ir-iot-sensor-for-german-electricity-meters-lorawan.html) · [iot-shop.de](https://iot-shop.de/shop/fl-fm432ir-fludia-fm432ir-lorawan-sml-optokopf-fur-moderne-stromzahler-6180) | SML protocol, 868 MHz LoRaWAN (also LTE-M/NB-IoT variants), battery-powered, 1-min or 15-min interval, 3.5-8 year battery life, made in France |
+
+**Recommendation:** IMST iOKE868 is the most cost-effective choice for Phase 1. It offers flexible power options (USB or battery), external antenna for metallic cabinets, and the lowest per-unit cost. KLAX 2.0 is a solid battery-only alternative at €149.90. Fludia FM432ir offers the longest battery life but at higher cost.
 
 ### 5.2 Outdoor Gateways (Phase 1)
 
-| Product | Type | Key Features |
-|---------|------|---------------|
-| Milesight UG67 | Outdoor IP67 | 8-channel, 868 MHz, PoE, built-in NS |
-| ... | ... | ... |
+| Product | Price (incl. VAT) | German Shop | Key Features |
+|---------|-------------------|-------------|---------------|
+| **Milesight UG67-868M** | €588.19 | [reichelt.de](https://www.reichelt.de/outdoor-lorawan-gateway-mil-ug67-p305301.html) | IP67, 8-channel (SX1302), 868 MHz, 2000+ nodes, PoE PD, built-in Network Server, quad-core 1.5GHz, 512MB RAM, 8GB eMMC, MQTT/HTTP/BACnet/Modbus, external N-Female antenna connectors, supercapacitor backup |
+| **Dragino DLOS8N-868** | €224.95 (no 4G) · €299.95 (with 4G) | [antratek.de](https://www.antratek.de/dlos8n-outdoor-lorawan-gateway) · [industry-electronics.de](https://industry-electronics.com/dragino/dlos8n-868-ec25-gateway-lora-outdoor-lorawan-lieske_1704078.htm) €392 | IP65, 10-channel (SX1302), 868 MHz, OpenWrt open source, PoE, GPS, WiFi, Ethernet, external fiber glass antenna |
+
+**Recommendation:** Milesight UG67 is the preferred gateway for 100-1000 household deployments. It has proven scalability (2000+ nodes), built-in Network Server (reduces dependency on external NS), IP67 rating, and is available from reichelt.de with reliable stock. Dragino DLOS8N is a lower-cost alternative but less proven at scale — suitable for smaller deployments or as a development testbed. The UG67's built-in supercapacitor provides ~1 minute of operation after power loss for orderly shutdown.
+
+**Note:** The UG67-868M model (no cellular) is sufficient since WiFi/Ethernet backhaul is used. The LTE variant (UG67-L04EU) is available if cellular failover is needed.
 
 ### 5.3 Server Platforms (Phase 1)
 
-| Product | Type | Key Features |
-|---------|------|---------------|
-| Home Assistant Green | Appliance | Pre-installed, 4GB RAM, 32GB storage |
-| Raspberry Pi 5 + case | SBC | Alternative, requires HA OS installation |
-| ... | ... | ... |
+| Product | Price (incl. VAT) | German Shop | Key Features |
+|---------|-------------------|-------------|---------------|
+| **Home Assistant Green** | €139-€179 (Nabu Casa SRP: €179 as of Apr 2026) | [nabucasa.com](https://www.nabucasa.com) · [smartdomo.de](https://shopforward.de/i/31280-860011789703) €139 · [reichelt.de](https://www.reichelt.de) €145 | Pre-installed HA OS, 4GB RAM, 32GB eMMC, Gigabit Ethernet, 2×USB 2.0, HDMI, ARM A55 quad-core, 112×112×32mm, plug-and-play |
+| **Raspberry Pi 5 (4GB) + case + PSU + SD** | ~€100-120 | [reichelt.de](https://www.reichelt.de) · [raspberrypi.com](https://www.raspberrypi.com) | Requires manual HA OS install, 4GB/8GB RAM options, USB boot, PCIe 2.0, more flexible but higher maintenance |
+
+**Recommendation:** Home Assistant Green is the recommended platform. It eliminates setup complexity, has sufficient performance for 100+ household MQTT handling, and is the officially supported path. The RPi 5 alternative is suitable for technically experienced users or when budget is the primary constraint. At the current HA Green street price of ~€139-145, the price difference to an RPi 5 setup (~€100-120) is marginal given the convenience and support benefits.
 
 ### 5.4 Control Devices (Phase 2)
 
-| Category | Product Examples | Protocol |
-|----------|------------------|----------|
-| Wallbox | go-e, Wallbe, DaheimLader, Zaptec | OCPP, Modbus, REST |
-| Smart Plug | Shelly Plus, Shelly Pro | MQTT, REST |
-| PV Inverter | SolarEdge, SMA, Kostal | Modbus TCP |
-| Battery | BYD, Tesla, FoxESS | Modbus, REST |
+| Category | Product Examples | Price (approx.) | Protocol | Notes |
+|----------|------------------|-----------------|----------|-------|
+| Wallbox | go-e Charger Gemini, Wallbe Eco 2.0, DaheimLader, Zaptec Go | €500-1200 | OCPP, Modbus, REST | go-e and DaheimLader have native HA integrations; prefer local Modbus/REST over OCPP where possible |
+| Smart Plug | **Shelly Plus Plug S** | **€17.84-20.99** | WiFi (MQTT/REST), Bluetooth | Available at [reichelt.de](https://www.reichelt.de/shelly-plus-plug-s-schwarz-shelly-plusplugb-p353366.html); power measurement included, 2500W max, local API (no cloud required) |
+| Smart Plug | Shelly Pro 4PM | €89-99 | WiFi (MQTT/REST), Ethernet | DIN-rail mount, 4 channels, power measurement per channel |
+| PV Inverter | SolarEdge, SMA, Kostal | varies | Modbus TCP | Most modern inverters support Modbus; check manufacturer documentation |
+| Battery | BYD, Tesla Powerwall, FoxESS | varies | Modbus, REST | Battery BMS integration depends on manufacturer API openness |
+
+**Note:** Smart plugs must support **local control** (MQTT or REST API) without cloud dependency to comply with FR06 (offline capability). Shelly devices meet this requirement with their local HTTP/MQTT API. Avoid cloud-only smart plugs.
 
 ### 5.5 Optimization Software (Phase 2)
 
@@ -556,6 +567,27 @@ Each component was evaluated against the following criteria:
 
 **Recommendation:** Start with HAEO for core optimization. Add AkkudoktorEOS for German price predictions. Use EVCC for wallbox OCPP control.
 
+### 5.6 Price Comparison Summary
+
+| Component | Recommended Product | Price (incl. VAT) | Quantity | Total |
+|-----------|-------------------|-------------------|----------|-------|
+| Central Server | Home Assistant Green | €145 | 1 | **€145** |
+| Outdoor Gateway | Milesight UG67-868M | €588 | 1 | **€588** |
+| PoE Injector | Included in UG67 bundle (reichelt.de) | €0 | — | **€0** |
+| **Central Total** | | | | **€733** |
+| | | | | |
+| Sensor (per household) | IMST iOKE868 + USB PSU | €119 + €7.50 | 1 | **€126.50** |
+| Smart Plug (Phase 2, optional) | Shelly Plus Plug S | €18-21 | 1 | **€18-21** |
+| **Per Household (Phase 1 only)** | | | | **~€127** |
+| **Per Household (cumulative Phase 1+2)** | | | | **~€148** |
+
+**Central cost exceeds the €300 target.** This is driven by the UG67 gateway (€588). Options to reduce:
+- Use Dragino DLOS8N (€225) instead of UG67 → central total ~€370, but risks at scale
+- Share gateway across multiple communities (up to 2000 nodes supported)
+- Use RPi 5 (€100) instead of HA Green → saves ~€45
+
+**Per-household cost is within the €200 target** for Phase 1 and within €350 for Phase 2.
+
 ---
 
 ## 6. Cost Implementation Guide
@@ -564,23 +596,27 @@ Each component was evaluated against the following criteria:
 
 | Category | Target | Actual | Status |
 |----------|--------|--------|--------|
-| Central server | €100-150 | | |
-| Outdoor gateway | €150-200 | | |
-| Network equipment | €20-50 | | |
-| **Central Total** | **≤ €300** | | |
+| Central server | €100-150 | €145 (HA Green) | ⚠ Over budget |
+| Outdoor gateway | €150-200 | €588 (UG67-868M) | ⚠ Over budget |
+| Network equipment | €20-50 | €0 (PoE included) | ✓ Under budget |
+| **Central Total** | **≤ €300** | **€733** | ⚠ Exceeds target |
 | | | | |
-| Sensor per household | €100-150 | | |
-| Power supply (optional) | €0-20 | | |
-| **Per Household** | **≤ €200** | | |
+| Sensor per household | €100-150 | €119 (iOKE868) | ✓ Within budget |
+| Power supply (optional) | €0-20 | €7.50 (USB PSU) | ✓ Within budget |
+| **Per Household (Phase 1)** | **≤ €200** | **~€127** | ✓ Within budget |
+| Smart Plug (Phase 2, optional) | €0-50 | €18-21 | ✓ Within budget |
+| **Per Household (Total with Phase 2)** | **≤ €350** | **~€155** | ✓ Within budget |
+
+**Note:** Central total exceeds the €300 target primarily due to the Milesight UG67 gateway (€588). See Section 5.6 for cost reduction options.
 
 ### 6.2 Budget Tracking - Phase 2
 
-| Category | Target | Notes |
-|----------|--------|-------|
-| Control integration | €0-50 | Usually already present |
-| Smart plugs (per device) | €20-40 | Optional |
-| Additional software | €0 | Open source |
-| **Phase 2 Add-on** | **≤ €150/household** | |
+| Category | Target | Actual | Notes |
+|----------|--------|--------|-------|
+| Control integration | €0-50 | €0 | Use existing devices where possible; EVCC/HAEO are free open source |
+| Smart plugs (per device) | €20-40 | €18-21 | Shelly Plus Plug S from reichelt.de |
+| Additional software | €0 | €0 | HAEO, EVCC, AkkudoktorEOS — all open source |
+| **Phase 2 Add-on** | **≤ €150/household** | **€18-21** (or €0 if existing devices) | ✓ Within budget |
 
 ### 6.3 Cost Optimization Tips
 
@@ -696,5 +732,5 @@ Each component was evaluated against the following criteria:
 
 *This document provides implementation guidance for Phase 1 and Phase 2. It supports the requirements specification by showing how to achieve the defined goals while maintaining economic fairness across all household types.*
 
-**Document Version:** 3.1
+**Document Version:** 3.2
 **Last Updated:** May 2026
