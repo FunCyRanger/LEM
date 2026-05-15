@@ -70,78 +70,82 @@ Based on the requirements, the following technical categories are needed:
 | FR16-20 | Control Integration | Wallbox, smart plug, PV, battery APIs | 2 |
 | NF01 | Outdoor Gateway | IP67 rated, weatherproof | 1 |
 | FR07, FR09 | Central Server | MQTT broker, local database, dashboard | 1 |
-| FR16-20, FR06 | Per-Household Local Controller | Bridges local Modbus/WiFi devices to central MQTT; buffers data during outages | 1+2 |
+| FR16-20, FR06 | Per-Household Bridge Device | Connects local Modbus devices and meter IR to central via LoRaWAN; buffers data during outages | 1+2 |
 
 ### 2.2 System Diagram - Phase 1 + 2
 
+The system uses a single wireless technology — LoRaWAN 868 MHz — for all communication between households and the central server. MQTT is used only on the local LAN between the gateway and the server.
+
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                      LEM-NETZ IMPLEMENTATION                       │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│  [HOUSE 1]                 [HOUSE 2]                 [HOUSE N]     │
-│  ┌──────────────────┐    ┌──────────────────┐    ┌──────────────┐  │
-│  │  ENERGY METER    │    │  ENERGY METER    │    │ ENERGY METER │  │
-│  │  (IR interface)  │    │  (IR interface)  │    │ (IR inter.)  │  │
-│  └──────┬───────────┘    └──────┬───────────┘    └──────┬───────┘  │
-│         │                       │                       │          │
-│         ▼                       ▼                       ▼          │
-│  ┌──────────────────┐    ┌──────────────────┐    ┌──────────────┐  │
-│  │ iOKE868 SENSOR   │    │ iOKE868 SENSOR   │    │ iOKE868 SEN. │  │
-│  │ (LoRaWAN 868MHz) │    │ (LoRaWAN 868MHz) │    │ (LoRaWAN)    │  │
-│  └──────┬───────────┘    └──────┬───────────┘    └──────┬───────┘  │
-│         │                       │                       │          │
-│  ┌──────┴───────────┐    ┌──────┴───────────┐    ┌──────┴───────┐  │
-│  │ CONTROL DEVICES  │    │ CONTROL DEVICES  │    │CONTROL DEV.  │  │
-│  │ • Wallbox        │    │ • Wallbox        │    │ • Smart Plug │  │
-│  │ • PV inverter    │    │ • Smart Plug     │    │ • Battery    │  │
-│  │ • Battery BMS    │    │                   │    │              │  │
-│  └──────┬───────────┘    └──────┬───────────┘    └──────┬───────┘  │
-│         │ Modbus/WiFi           │ Modbus/WiFi           │ Modbus   │
-│         ▼                       ▼                       ▼          │
-│  ┌──────────────────┐    ┌──────────────────┐    ┌──────────────┐  │
-│  │ LOCAL CONTROLLER │    │ LOCAL CONTROLLER │    │LOCAL CONTR.  │  │
-│  │ (ESP32/ESPHome)  │    │ (ESP32/ESPHome)  │    │(ESP32/ESPHome)│  │
-│  └──────┬───────────┘    └──────┬───────────┘    └──────┬───────┘  │
-│         │    MQTT over          │    MQTT over          │   MQTT    │
-│         │    WiFi/Internet      │    WiFi/Internet      │   over    │
-│         │    (TLS)              │    (TLS)              │   Mesh    │
-│         │         │             │         │             │     │     │
-│         └─────────┼─────────────┴─────────┼─────────────┴─────┘     │
-│                   │                       │                         │
-│          ┌────────┴───────────────────────┴──────────┐              │
-│          │    OUTDOOR GATEWAY (Milesight UG67)       │              │
-│          │    • LoRaWAN 868 MHz packet forwarder      │              │
-│          │    • MQTT (via MQTT) to central server     │              │
-│          └──────────────────────┬────────────────────┘              │
-│                                 │ Ethernet                          │
-│                                 ▼                                   │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │  CENTRAL SERVER (Home Assistant Green / RPi 5)              │   │
-│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │   │
-│  │  │ MQTT Broker  │  │  Database    │  │   Dashboard      │  │   │
-│  │  │ (Mosquitto)  │  │ (InfluxDB)   │  │     (HA)         │  │   │
-│  │  └──────┬───────┘  └──────┬───────┘  └────────┬─────────┘  │   │
-│  │         │                  │                    │            │   │
-│  │         ▼                  ▼                    ▼            │   │
-│  │  ┌────────────────────────────────────────────────────────┐  │   │
-│  │  │              OPTIMIZATION ENGINE                       │  │   │
-│  │  │  ┌─────────────────┐  ┌──────────────────────────┐    │  │   │
-│  │  │  │  Price Import   │  │  Control Logic           │    │  │   │
-│  │  │  │ (EPEX, Tibber)  │  │  (Revenue-aware)         │    │  │   │
-│  │  │  └─────────────────┘  └──────────────────────────┘    │  │   │
-│  │  │         │                                               │  │   │
-│  │  │         ▼                                               │  │   │
-│  │  │  ┌──────────────────────────────────────────────────┐   │  │   │
-│  │  │  │  INFRASTRUCTURE WATCHDOG                         │   │  │   │
-│  │  │  │  • Monitors virtual transformer                  │   │  │   │
-│  │  │  │  • Issues MQTT shed commands to local controllers│   │  │   │
-│  │  │  │  • 80% trigger / 60% hysteresis                  │   │  │   │
-│  │  │  └──────────────────────────────────────────────────┘   │  │   │
-│  │  └────────────────────────────────────────────────────────┘  │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         LEM-NETZ SYSTEM                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌──────────────────────────────────────────────────────────────────┐      │
+│  │  NEIGHBORHOOD NETWORK — Central Server (Home Assistant Green/RPi)│      │
+│  │                                                                  │      │
+│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐   │      │
+│  │  │ MQTT Broker  │  │  Database    │  │  Dashboard           │   │      │
+│  │  │ (Mosquitto)  │  │ (InfluxDB)   │  │  (Home Assistant)    │   │      │
+│  │  └──────┬───────┘  └──────┬───────┘  └────────┬─────────────┘   │      │
+│  │         │                  │                    │                │      │
+│  │         ▼                  ▼                    ▼                │      │
+│  │  ┌────────────────────────────────────────────────────────────┐  │      │
+│  │  │  OPTIMIZATION ENGINE (Phase 2)                             │  │      │
+│  │  │  ┌─────────────────┐  ┌──────────────────────────────┐    │  │      │
+│  │  │  │  Price Import   │  │  Control Logic               │    │  │      │
+│  │  │  │ (EPEX, Tibber)  │  │  (Revenue-aware)             │    │  │      │
+│  │  │  └─────────────────┘  └──────────────────────────────┘    │  │      │
+│  │  │  ┌────────────────────────────────────────────────────┐   │  │      │
+│  │  │  │  INFRASTRUCTURE WATCHDOG                           │   │  │      │
+│  │  │  │  • Monitors virtual transformer                    │   │  │      │
+│  │  │  │  • Issues max_power / shed commands                │   │  │      │
+│  │  │  │  • 80% trigger / 60% hysteresis                    │   │  │      │
+│  │  │  └────────────────────────────────────────────────────┘   │  │      │
+│  │  └────────────────────────────────────────────────────────────┘  │      │
+│  └───────────────────────┬──────────────────────────────────────────┘      │
+│                          │ MQTT over Ethernet (LAN)                         │
+│                          ▼                                                  │
+│  ┌──────────────────────────────────────────────────────────────────────┐  │
+│  │  OUTDOOR GATEWAY (Milesight UG67, IP67 roof-mount)                   │  │
+│  │  LoRaWAN ↔ MQTT packet forwarder — translates between               │  │
+│  │  the wireless (868 MHz) and wired (Ethernet) domains                │  │
+│  └───────────────────────┬──────────────────────────────────────────────┘  │
+│                          │ LoRaWAN 868 MHz (bidirectional, uplink+downlink) │
+│                          ▼                                                  │
+│  ┌──────────────────────────────────────────────────────────────────────┐  │
+│  │  HOUSEHOLD DOMAIN (×N) — one bridge device per household              │  │
+│  │                                                                      │  │
+│  │  ┌────────────────────────────────────────────────────────────┐     │  │
+│  │  │  BRIDGE DEVICE (ESP32 + LoRa radio)                         │     │  │
+│  │  │                                                              │     │  │
+│  │  │  • LoRaWAN uplink: meter readings, device power data       │     │  │
+│  │  │  • LoRaWAN downlink: max_power limits, shed commands        │     │  │
+│  │  │  • IR optical: reads smart meter (SML/IEC 62056-21)        │     │  │
+│  │  │  • Modbus RTU (RS485): controls home devices               │     │  │
+│  │  │  • Local limit enforcement: stays within control/max_power  │     │  │
+│  │  │  • Data buffering during LoRaWAN outages (last known vals) │     │  │
+│  │  └──────────┬─────────────────────────────────────────────────┘     │  │
+│  │             │ Modbus RTU (RS485)                                      │
+│  │  ┌──────────┴───────────────────────────────────────────────────┐     │  │
+│  │  │  HOUSEHOLD DEVICES (varies per household)                    │     │  │
+│  │  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐    │     │  │
+│  │  │  │ Wallbox  │  │PV Inverter│  │ Battery  │  │Smart Plug│    │     │  │
+│  │  │  │ (Modbus) │  │ (Modbus) │  │ (Modbus) │  │ (Modbus) │    │     │  │
+│  │  │  └──────────┘  └──────────┘  └──────────┘  └──────────┘    │     │  │
+│  │  └─────────────────────────────────────────────────────────────┘     │  │
+│  └──────────────────────────────────────────────────────────────────────┘  │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Data flow summary:**
+
+| Direction | Path | Protocol |
+|-----------|------|----------|
+| House → Central | ESP → LoRaWAN uplink → UG67 → LAN (MQTT) → HA | LoRaWAN + MQTT |
+| Central → House | HA → LAN (MQTT) → UG67 → LoRaWAN downlink → ESP | MQTT + LoRaWAN |
+| Local household | ESP ↔ home devices (Modbus RTU RS485) | Modbus |
 ```
 
 ---
@@ -224,16 +228,17 @@ Based on the requirements, the following technical categories are needed:
 
 #### B.3 Local Controller Setup (20-45 minutes)
 
-All households use the same controller: ESP32 + ESPHome. See Section 3.2.2 for hardware details.
+All households use the same bridge device: ESP32 + LoRa radio module. See Section 3.2.2 for hardware details.
 
-**ESP32/ESPHome Setup:**
-- Flash ESPHome firmware via USB (first-time) or OTA (updates)
-- Connect MAX3485 RS485 transceiver: ESP32 GPIO16 (TX)→ RS485, GPIO17 (RX) ← RS485
+**Bridge Device Setup:**
+- Flash firmware via USB (first-time) — Arduino/PlatformIO with LoRaWAN + Modbus + IR libraries
+- Connect MAX3485 RS485 transceiver: ESP32 UART2 (GPIO16 TX, GPIO17 RX) → RS485
 - Wire RS485 A/B to wallbox or inverter Modbus terminals
-- Write ESPHome YAML with Modbus client, MQTT topics per Section 3.2.1
-- Configure WiFi SSID/password for household network
-- Set MQTT broker address to central server IP
-- Test: verify sensor data appears on `lem-netz/house/<id>/sensor/...`
+- Connect IR optical read head to ESP32 UART1
+- Connect LoRa radio module to ESP32 SPI bus (MOSI, MISO, SCK, NSS, DIO0, RST)
+- Register on LoRaWAN network server: assign DevEUI, AppKey, AppEUI
+- Set uplink interval (default: 1-5 min) in firmware config
+- Test: verify uplink data arrives at HA via MQTT topics `lem-netz/house/<id>/sensor/...`
 
 For households with devices requiring OCPP or Modbus TCP (not supported on ESP32), see the alternative controller setup in Section 12.
 
@@ -288,15 +293,14 @@ sensor:
 
 ## 3.1 Offline Architecture (FR06)
 
-The system SHALL remain functional without internet. Here is how each layer handles offline scenarios:
+The system SHALL remain functional without internet. Here is how each domain handles offline scenarios:
 
-| Layer | Component | Offline Behavior | Data Retention |
-|-------|-----------|-----------------|----------------|
-| Edge | iOKE868 sensor | Continues measuring and transmitting; no store-and-forward | Last reading only (no buffer) |
-| Local Control | ESP32 / RPi / existing HA | Continues polling local devices (wallbox, PV, battery); buffers readings when MQTT link to central is down; executes watchdog shed commands regardless of connectivity | Configurable buffer (hours to days on RPi; limited on ESP32) |
+| Domain | Component | Offline Behavior | Data Retention |
+|--------|-----------|-----------------|----------------|
+| Neighborhood Network | Mosquitto MQTT broker | All local, no internet dependency | Retained messages on topics |
+| Neighborhood Network | Home Assistant + InfluxDB | Dashboard and automations continue locally | Full database local |
 | Gateway | Milesight UG67 | Continues receiving LoRa packets; forwards when connection restored | Built-in NS queues data |
-| MQTT | Mosquitto broker | All local, no internet dependency | Retained messages on topics |
-| Server | Home Assistant | Continues running; dashboard and automations work locally | Full database local |
+| Household Bridge | ESP32 + LoRa radio | Continues reading meter (IR) and polling local devices; buffers readings when LoRaWAN link is down; enforces last known max_power limit | Configurable buffer (limited on ESP32) |
 
 **No component requires internet for core operation.** The price optimizations in Phase 2 require intermittent internet for EPEX/Tibber data, but the system degrades gracefully: if price data is unavailable, optimization falls back to default charging patterns.
 
@@ -304,119 +308,169 @@ The system SHALL remain functional without internet. Here is how each layer hand
 
 ## 3.2 Per-Household Local Integration
 
-Control devices (wallbox, PV inverter, battery BMS, smart plugs) are located inside each household and cannot connect directly to the central server. Each house requires a **local controller** that bridges household devices to the central MQTT broker.
+Control devices (wallbox, PV inverter, battery BMS, smart plugs) are located inside each household and cannot connect directly to the central server. Each house requires a **bridge device** that connects household devices to the central server via LoRaWAN through the outdoor gateway (UG67).
 
-### 3.2.1 MQTT Topic Hierarchy
+### 3.2.1 LoRaWAN Data Model and MQTT Topic Hierarchy
 
-The ESP32 communicates with the central server via a simple MQTT topic structure. Two message types exist: **sensor** data (house → central) and **control** commands (central → house).
+All household-to-central communication uses LoRaWAN 868 MHz. The Milesight UG67 gateway forwards LoRaWAN payloads to the central MQTT broker over Ethernet. MQTT topics exist only on the LAN between gateway and server — the ESP does not use MQTT.
 
-**Topic patterns:**
+**LoRaWAN payload format (ESP → UG67):**
 
-```
-lem-netz/house/<household_id>/sensor/<device>/<metric>       # Data from house to central
-lem-netz/house/<household_id>/control/<type>                  # Limits/commands from central to house
-lem-netz/house/<household_id>/status/<type>                   # Confirmations from house to central
-```
+| Data | Uplink Interval | Encoding | Size |
+|------|----------------|----------|------|
+| Smart meter power (W) | Every 1-5 min | 2-byte unsigned int | 2 bytes |
+| Wallbox power (W) | Every 1-5 min | 2-byte signed int | 2 bytes |
+| PV production (W) | Every 1-5 min | 2-byte unsigned int | 2 bytes |
+| Battery SoC (%) | Every 1-5 min | 1-byte unsigned int | 1 byte |
+| Battery power (W) | Every 1-5 min | 2-byte signed int | 2 bytes |
+| Smart plug power (W) | Every 1-5 min | 2-byte unsigned int | 2 bytes |
+| Shed status | On event | 1-byte bitmask | 1 byte |
 
-**Example topics:**
+Total typical payload: 6-12 bytes per uplink (well within LoRaWAN limits).
 
-| Topic | Direction | Payload | Description |
-|-------|-----------|---------|-------------|
-| `lem-netz/house/1/sensor/wallbox/power` | House → Central | `{"value": 4500, "unit": "W"}` | Wallbox current power consumption |
-| `lem-netz/house/1/sensor/pv/production` | House → Central | `{"value": 3200, "unit": "W"}` | PV current production |
-| `lem-netz/house/1/sensor/battery/soc` | House → Central | `{"value": 65, "unit": "%"}` | Battery state of charge |
-| `lem-netz/house/1/control/max_power` | Central → House | `{"value": 5000, "unit": "W"}` | Hard limit on total household import power |
-| `lem-netz/house/1/control/shed` | Central → House | `{"reason": "transformer_overload", "severity": "critical"}` | Shed non-essential loads (emergency fallback only) |
-| `lem-netz/house/1/control/restore` | Central → House | `{"reason": "load_recovered"}` | Restore previously shed loads |
-| `lem-netz/house/1/status/shed` | House → Central | `{"status": "executed", "loads_shed": ["wallbox", "smart_plug_1"]}` | Shed confirmation |
+**Downlink payload format (UG67 → ESP):**
 
-`control/max_power` replaces the previous `constraint/max_power`. The ESP32 enforces this hard limit locally by shedding or throttling devices. `control/shed` is the emergency fallback used only when limits alone cannot resolve an overload. No compliance reporting or heartbeat topics are needed — the central system verifies load by reading sensor data directly.
+| Command | Encoding | Size | ESP Action |
+|---------|----------|------|------------|
+| `max_power` (W) | 2-byte unsigned int | 2 bytes | Stay within this total household import limit |
+| `shed` | 1-byte flag | 1 byte | Shed all non-essential loads immediately |
+| `restore` | 1-byte flag | 1 byte | Restore previously shed loads |
 
-### 3.2.2 Local Controller (ESP32 + ESPHome)
+**MQTT topics (LAN side only — between UG67/network server and HA):**
 
-Every household with controllable devices uses the same local controller: an **ESP32 running ESPHome**. There is one configuration approach for all households.
+| Topic | Direction | Payload |
+|-------|-----------|---------|
+| `lem-netz/house/<id>/sensor/power` | Gateway → HA | `{"value": 4500, "unit": "W"}` |
+| `lem-netz/house/<id>/sensor/wallbox/power` | Gateway → HA | `{"value": 4500, "unit": "W"}` |
+| `lem-netz/house/<id>/sensor/pv/production` | Gateway → HA | `{"value": 3200, "unit": "W"}` |
+| `lem-netz/house/<id>/sensor/battery/soc` | Gateway → HA | `{"value": 65, "unit": "%"}` |
+| `lem-netz/house/<id>/control/max_power` | HA → Gateway | `{"value": 5000, "unit": "W"}` |
+| `lem-netz/house/<id>/control/shed` | HA → Gateway | `{"reason": "transformer_overload"}` |
+| `lem-netz/house/<id>/control/restore` | HA → Gateway | `{"reason": "load_recovered"}` |
+
+The gateway or a lightweight LoRaWAN network server (e.g., ChirpStack running on the central server) translates between LoRaWAN payloads and these MQTT topics. The ESP32 enforces the last received `max_power` limit locally by shedding or throttling devices in fixed priority order. `control/shed` is the emergency fallback used only when limits alone cannot resolve an overload.
+
+### 3.2.2 Bridge Device Hardware (ESP32 + LoRa)
+
+Every household uses the same bridge device: an **ESP32 with a LoRa radio module**. One design for all households.
 
 | Component | Purpose | Cost |
 |-----------|---------|------|
-| ESP32 DevKit C | WiFi + Bluetooth MCU, 2 UARTs for Modbus RS485 | €12-18 |
+| ESP32 DevKit C | MCU, 2 UARTs for Modbus RS485, SPI for LoRa module | €12-18 |
+| LoRa radio module (e.g., RFM95W, SX1276) | 868 MHz LoRaWAN transceiver, SPI interface | €8-15 |
 | MAX3485 RS485 Module | Converts ESP32 UART to RS485 for Modbus RTU | €3-5 |
-| USB power supply | 5V power (can share outlet with iOKE868 sensor) | €5-10 |
-| USB cable + enclosure | Mounting and connectivity | €3-5 |
-| **Total** | | **€20-25** |
+| IR optical read head | Reads smart meter via IR interface (SML protocol) | €5-10 |
+| USB power supply | 5V power | €5-10 |
+| USB cable + enclosure | Mounting and connectivity | €5-10 |
+| **Total** | | **€38-68** |
 
 **Capabilities:**
-- Runs ESPHome firmware — all configuration via YAML, no coding required
-- Connects to central HA via MQTT over household WiFi
+- LoRaWAN uplink: sends meter reading and device power data every 1-5 min
+- LoRaWAN downlink: receives `max_power` limits and `shed`/`restore` commands
+- IR optical: reads smart meter power/energy via SML/IEC 62056-21
 - Modbus RTU (RS485) for wallbox, PV inverter, battery BMS (±1-2 Modbus devices)
-- WiFi for smart plugs (Shelly local HTTP API) or direct ESPHome switches
-- Enforces hard limits: if total household power exceeds `control/max_power`, sheds loads in fixed priority order
-- Executes emergency `control/shed` immediately when received
-- ESPHome native encryption + MQTT TLS for security
+- Local limit enforcement: stays within last received `max_power` by shedding loads in fixed priority
+- Data buffering: stores last readings during LoRaWAN outages
+- No WiFi dependency — uses LoRaWAN for all backhaul
+
+**LoRaWAN configuration:**
+- Frequency band: 868 MHz (EU868, duty cycle 1%)
+- Spreading factor: SF7-SF12 adaptive (longer range = slower data)
+- Uplink interval: 1-5 minutes (adjustable per household)
+- Activation: OTAA (Over-The-Air Activation) with individual DevEUI/AppKey per device
 
 **Setup:**
-1. Flash ESPHome firmware via USB (first-time) or OTA (updates)
-2. Connect MAX3485: ESP32 GPIO16 (TX) → RS485, GPIO17 (RX) ← RS485, wire A/B to wallbox/inverter Modbus terminals
-3. Write ESPHome YAML with Modbus client and MQTT topics
-4. Configure WiFi SSID/password for household network
-5. Set MQTT broker address to central server IP
-6. Test: `mosquitto_pub` and `mosquitto_sub` to verify MQTT link
+1. Flash firmware via USB (first-time) using Arduino IDE or PlatformIO with MCCI LoRaWAN library
+2. Connect MAX3485: ESP32 UART2 (GPIO16 TX, GPIO17 RX) → RS485, wire A/B to wallbox/inverter Modbus terminals
+3. Connect IR read head: ESP32 UART1 to IR phototransistor circuit
+4. Connect LoRa module: ESP32 SPI (MOSI, MISO, SCK) + NSS, DIO0, RST
+5. Register device on LoRaWAN network server: DevEUI, AppKey, AppEUI
+6. Test: verify uplink appears on MQTT topics at HA
 
 ### 3.2.3 Backhaul (Household to Central)
 
-The ESP32 connects to the central MQTT broker over the household's existing WiFi network. No additional infrastructure is needed.
+The ESP32 communicates with the central server exclusively via **LoRaWAN 868 MHz** through the outdoor gateway (Milesight UG67). No WiFi, no Ethernet, and no MQTT are needed at the household.
 
-| Option | Description | Setup |
-|--------|-------------|-------|
-| **MQTT over WiFi (default)** | ESP32 connects to household WiFi, publishes to central MQTT broker | Configure WiFi SSID/password + broker IP in ESPHome YAML |
-| **MQTT over Ethernet** | For households with Ethernet near the controller (more reliable) | Use ESP32 with Ethernet module (e.g., Olimex ESP32-POE) |
+**Data flow:**
 
-No internet connection is required — MQTT stays on the local network if the broker is reachable via LAN/WiFi. TLS is optional for local-only deployments.
+```
+ESP (LoRa radio) ───┐
+                    ├── LoRaWAN 868 MHz ──→ UG67 Gateway ── MQTT (LAN) ──→ HA
+Smart Meter (IR) ───┘
+Home Devices (Modbus) ─── Modbus RTU ──→ ESP
+```
 
-### 3.2.4 Device Support on ESP32
+The UG67 acts as the protocol translator: LoRaWAN ↔ MQTT. On the household side, LoRaWAN handles all wireless communication. On the LAN side, MQTT transports data between UG67 and Home Assistant.
 
-| Device | Connection | ESPHome Configuration |
-|--------|-----------|----------------------|
-| Wallbox (Modbus RTU) | RS485 via MAX3485 | Modbus RTU client in YAML |
-| Wallbox (Modbus TCP) | WiFi (if wallbox supports TCP) | Prefer RS485 for reliability |
-| PV Inverter (Modbus) | RS485 via MAX3485 | Modbus RTU client (1-2 devices total per ESP32) |
-| Battery BMS (Modbus RTU) | RS485 via MAX3485 | Modbus RTU client (if registers are documented) |
-| Smart Plug (Shelly) | WiFi local HTTP API | `http_request` component to poll Shelly REST |
-| Smart Plug (generic MQTT) | WiFi | ESPHome MQTT output component |
+**Uplink intervals and duty cycle:**
 
-If a household has more than 2 Modbus devices, use a second ESP32 or one of the alternative controller options documented in the appendix (Section 12).
+| Setting | Value | Note |
+|---------|-------|------|
+| Report interval | 1-5 min | Adjustable per household |
+| Duty cycle limit | 1% (EU868) | ~36 seconds transmit per hour |
+| Typical airtime per uplink | ~50-200 ms | Depends on SF setting |
+| Max uplinks per hour (SF7) | ~720 | More than sufficient at 5 min intervals |
+
+At a 5-minute interval (12 uplinks/hour), the duty cycle usage is negligible (&lt;0.1%). For faster reporting (1-minute intervals, 60 uplinks/hour), use lower spreading factors (SF7-9) to keep airtime short.
+
+### 3.2.4 Device Support on Bridge
+
+| Device | Connection | Notes |
+|--------|-----------|-------|
+| Wallbox (Modbus RTU) | RS485 via MAX3485 | Preferred — simple, reliable |
+| PV Inverter (Modbus RTU) | RS485 via MAX3485 | 1-2 Modbus devices total per ESP32 |
+| Battery BMS (Modbus RTU) | RS485 via MAX3485 | If Modbus registers are documented |
+| Smart Plug (Modbus RTU) | RS485 via MAX3485 | Use Modbus-capable relays (e.g., Shelly Pro with RS485 addon) |
+| Smart Meter (IR) | IR optical read head | Reads SML/IEC 62056-21 data via serial UART |
+
+**Modbus TCP** or **OCPP** devices require a Raspberry Pi alternative (see Section 12). Prefer Modbus RTU devices for compatibility.
+
+If a household has more than 2 Modbus devices, use a second ESP32.
 
 ### 3.2.5 Control Philosophy
 
-The system uses a **constraint-based control model**: the central system sets hard limits, the ESP32 enforces them locally. This provides household autonomy, privacy (central system never sees individual device states), and resilience (ESP32 continues enforcing the last known limit even if MQTT drops).
+The system uses a **constraint-based control model**: the central system sets hard limits (via LoRaWAN downlink), the ESP32 enforces them locally. This provides household autonomy, privacy (central system never sees individual device states), and resilience (ESP32 continues enforcing the last known `max_power` limit even if LoRaWAN downlink is temporarily unavailable).
+
+**Latency and safety margin:**
+
+Because the bridge device reports power data every 1-5 minutes (LoRaWAN uplink), the central watchdog cannot detect overloads in real time. The system compensates with a wider safety margin:
+
+| Parameter | WiFi/MQTT model (old) | LoRaWAN model (this design) |
+|-----------|----------------------|---------------------------|
+| Max detection delay | ~1 second | Up to 5 minutes |
+| Watchdog trigger threshold | 80% | 65% (or lower depending on transformer headroom) |
+| Watchdog recovery threshold | 60% | 50% |
+| Stage 1 → Stage 2 wait | 30 seconds | 5-10 minutes (allowing for next uplink) |
+
+These thresholds are configurable per installation. The key tradeoff: simpler deployment (no WiFi per household) for slightly reduced transformer utilization.
 
 **Responsibility split:**
 
 | Concern | Central System (HA) | Household (ESP32) |
 |---------|--------------------|--------------------|
-| Transformer safety | Monitors virtual transformer, calculates fair-share limits | Enforces `control/max_power` by shedding loads in priority order |
-| Load optimization | Broadcasts price signals | Decides locally which loads to run within limits |
-| Emergency shutdown | Issues `control/shed` as last resort | Executes shed immediately (all non-essential off) |
+| Transformer safety | Monitors virtual transformer, calculates fair-share limits | Enforces last received `max_power` by shedding loads in priority order |
+| Load optimization | Broadcasts price signals via LoRaWAN downlink | Decides locally which loads to run within limits |
+| Emergency shutdown | Issues `shed` downlink as last resort | Executes shed immediately (all non-essential off) |
 
 **Normal operation:**
 ```
-Central HA                                ESP32
-   │                                         │
-   ├─ control/max_power = 5000W ───────────►│
-   │                                         ├─ "I have 5kW budget"
-   │                                         │  → Heat pump at 2kW
-   │                                         │  → EV charges at 3kW
-   │◄── sensor/wallbox/power = 3000W ────────┤
-   │◄── sensor/plug/power = 2000W ───────────┤
+Central HA ── LAN MQTT ── UG67 ── LoRaWAN ── ESP32
+   │                                              │
+   ├─ max_power = 5000W ────────downlink────────►│
+   │                                              ├─ "I have 5kW budget"
+   │                                              │  → Heat pump at 2kW
+   │                                              │  → EV charges at 3kW
+   │◄──── uplink: wallbox=3000W, plug=2000W ──────┤
 ```
 
 **Emergency shed:**
 ```
-Central HA                                ESP32
-   │                                         │
-   ├─ control/max_power = 3000W ───────────►│  Step 1: tighten limit
-   │  (30s — still overloaded)               │
-   ├─ control/shed ────────────────────────►│  Step 2: emergency shed
-   │◄── status/shed = {executed} ───────────┤
+Central HA ── LAN MQTT ── UG67 ── LoRaWAN ── ESP32
+   │                                              │
+   ├─ max_power = 3000W ──downlink (Stage 1)───►│  tighter limit
+   │  (wait 5-10 min for next uplink check)      │
+   ├─ shed ──────────────downlink (Stage 2)─────►│  emergency shed
+   │◄──── uplink: shed=executed ──────────────────┤
 ```
 
 **Load shed priority (ESP32, fixed order):**
@@ -487,39 +541,41 @@ input_number:
     step: 0.1
 ```
 
-### Phase E: Control Integration via Local Controller
+### Phase E: Control Integration via Bridge Device
 
-> **Architecture:** All device integration (wallbox, PV, battery, smart plugs) happens on the **per-household ESP32**, not on the central server. The ESP32 publishes sensor data to central MQTT and subscribes to control commands. See Section 3.2 for the full topic hierarchy.
+> **Architecture:** All device integration (wallbox, PV, battery, smart plugs) happens on the **per-household bridge device (ESP32)**, not on the central server. The ESP32 sends sensor data via LoRaWAN uplink and receives control commands via LoRaWAN downlink, routed through the UG67 gateway. Communication on the LAN side uses MQTT between UG67 and HA. See Section 3.2 for the full data model.
 
 #### E.1 Integration Architecture
 
 ```
-┌─ HOUSEHOLD ─────────────────────────────────────────────────────┐
-│                                                                  │
-│  Wallbox ───Modbus RTU──┐                                        │
-│  PV Inverter ─Modbus RTU─┤──→ ESP32 (ESPHome) ──MQTT──→ Central │
-│  Battery ─────Modbus RTU─┤        (via WiFi)      (TLS)    HA   │
-│  Smart Plug ────WiFi────┘                                        │
-│                                                                  │
-│  ESP32 handles:                                                  │
-│  • Protocol translation (Modbus RTU, Shelly HTTP)                │
-│  • Data normalization to MQTT topic schema                       │
-│  • Hard limit enforcement: stay within control/max_power         │
-│  • Emergency shed execution on control/shed                      │
-│  • Data buffering during network outages (last values)           │
-└──────────────────────────────────────────────────────────────────┘
+┌─ HOUSEHOLD ────────────────────────────────────────────────────────────┐
+│                                                                         │
+│  Wallbox ────────Modbus RTU──┐                                          │
+│  PV Inverter ───Modbus RTU───┤──→ ESP32 (LoRa radio) ──LoRaWAN──→ UG67 │
+│  Battery ───────Modbus RTU───┤         (868 MHz)           │           │
+│  Smart Plug ──Modbus RTU─────┘                              │ MQTT LAN │
+│                                                              ▼          │
+│  Smart Meter ────IR optical──→ ESP32                        Central HA │
+│                                                                         │
+│  ESP32 handles:                                                         │
+│  • Protocol translation (Modbus RTU, IR optical)                       │
+│  • LoRaWAN uplink: sensor data every 1-5 min                          │
+│  • LoRaWAN downlink: receive limits and commands                       │
+│  • Hard limit enforcement: stay within last received max_power         │
+│  • Data buffering during LoRaWAN outages                               │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
-#### E.1.1 Control Topic Handling
+#### E.1.1 Control Command Handling
 
-> **Primary mode:** The central system sends hard limits via `control/max_power`. The ESP32 enforces these locally by shedding loads in priority order. `control/shed` is the emergency fallback.
+> **Primary mode:** The central system sends hard limits via LoRaWAN downlink (`max_power`). The ESP32 enforces these locally by shedding loads in priority order. `shed` is the emergency fallback.
 
-| Topic | Purpose | ESP32 Action |
-|-------|---------|-------------|
-| `control/max_power` | Hard limit on total household import | Sum all device power; if exceeding limit, shed lowest-priority device |
-| `control/shed` | Emergency shutdown | Turn off all non-essential loads immediately |
+| Command | Encoding | ESP32 Action |
+|---------|----------|-------------|
+| `max_power` (2 bytes) | Unsigned int (watts) | Sum all device power; if exceeding limit, shed lowest-priority device |
+| `shed` (1 byte) | Flag | Turn off all non-essential loads immediately |
 
-No compliance reporting or heartbeat — the central system monitors actual load via sensor data.
+No compliance reporting or heartbeat — the central system monitors actual load via uplink sensor data.
 
 #### E.2 Wallbox/EV Charger Integration (on ESP32)
 
@@ -528,27 +584,27 @@ No compliance reporting or heartbeat — the central system monitors actual load
    | Protocol | ESP32 Support | Notes |
    |----------|--------------|-------|
    | Modbus RTU (RS485) | ✓ via MAX3485 | Preferred — simple, reliable |
-   | Modbus TCP | — | Not recommended on ESP32; use RS485 instead |
+   | Modbus TCP | — | Not available; use RS485 instead |
    | OCPP 1.6/2.0 | — | Not available on ESP32. Use EVCC on RPi (see appendix) |
    | Manufacturer REST | — | Not available on ESP32 |
 
    **Recommendation:** Connect wallbox via Modbus RTU (RS485). If your wallbox only supports OCPP, see the RPi-based alternative in Section 12.
 
-2. **Data Published to Central MQTT**
+2. **Data Sent via LoRaWAN Uplink**
 
-   | Topic | Payload | Interval |
-   |-------|---------|----------|
-   | `lem-netz/house/<id>/sensor/wallbox/power` | `{"value": 4500, "unit": "W"}` | Every 15s or on change |
-   | `lem-netz/house/<id>/sensor/wallbox/energy` | `{"value": 12.5, "unit": "kWh"}` | Every 5 min |
-   | `lem-netz/house/<id>/sensor/wallbox/status` | `{"state": "charging"}` | On change |
-   | `lem-netz/house/<id>/status/shed` | `{"status": "executed", "loads_shed": ["wallbox"]}` | On watchdog command |
+   | Data Point | Encoding | Interval |
+   |------------|----------|----------|
+   | Wallbox power (W) | 2-byte signed int | Every 1-5 min |
+   | Wallbox energy (kWh) | 4-byte unsigned int | Every 5 min |
+   | Wallbox status | 1-byte enum | On change |
+   | Shed confirmation | 1-byte flag | On watchdog command |
 
-3. **Control Commands from Central MQTT**
+3. **Control Commands via LoRaWAN Downlink**
 
-   | Topic | Payload | ESP32 Action |
-   |-------|---------|-------------|
-   | `control/max_power` | `{"value": 5000, "unit": "W"}` | Reduce wallbox current so total household stays below limit |
-   | `control/shed` | `{"reason": "transformer_overload"}` | Immediately stop wallbox charging |
+   | Command | Encoding | ESP32 Action |
+   |---------|----------|-------------|
+   | `max_power` | 2-byte unsigned int (W) | Reduce wallbox current so total household stays below limit |
+   | `shed` | 1-byte flag | Immediately stop wallbox charging |
 
 4. **OCPP Compatibility Note**
    - If your wallbox only supports OCPP (e.g., Wallbox Pulsar Plus), you will need the RPi-based alternative controller (see Section 12) since OCPP is not supported on ESP32
@@ -556,24 +612,24 @@ No compliance reporting or heartbeat — the central system monitors actual load
 
 #### E.3 Smart Plug/Switch Integration (on ESP32)
 
-Smart plugs connect via WiFi and are polled by the ESP32:
+Smart plugs must support Modbus RTU (RS485) — the bridge device has no WiFi:
 
 1. **Supported Devices**
 
-   | Device | Connection | ESPHome Configuration |
-   |--------|-----------|----------------------|
-   | Shelly Plus Plug S | WiFi local HTTP API | `http_request` component to poll REST API |
-   | Shelly Pro 4PM | WiFi local HTTP API | `http_request` component (4 channels) |
-   | Generic MQTT plug | WiFi | ESPHome MQTT output component |
+   | Device | Connection | Notes |
+   |--------|-----------|-------|
+   | Shelly Pro with RS485 addon | Modbus RTU via MAX3485 | Shelly Pro 4PM has optional RS485 adapter |
+   | Generic Modbus relay (e.g., Finders) | Modbus RTU via MAX3485 | DIN-rail mount, power measurement optional |
+   | ESP32 GPIO relay | Direct GPIO | Simple on/off, no power measurement |
 
 2. **Data Flow**
-   - **Sensor data**: ESP32 polls Shelly at `http://<shelly-ip>/rpc/Switch.GetStatus` → publishes to `lem-netz/house/<id>/sensor/plug/<name>/power`
-   - **Limit**: ESP32 sums all plug power; if approaching `control/max_power`, turns off lowest-priority plug
-   - **Emergency**: ESP32 receives `control/shed` → sends HTTP POST to Shelly to turn off
+   - **Sensor data**: ESP32 reads plug power via Modbus registers → includes in LoRaWAN uplink
+   - **Limit**: ESP32 sums all plug power; if approaching `max_power`, turns off lowest-priority plug
+   - **Emergency**: ESP32 receives `shed` downlink → sets GPIO/Modbus coil to off
 
 3. **Configuration**
-   - Assign static IP to each smart plug via DHCP reservation
-   - Assign each plug a shed priority (1 = shed first) in ESPHome YAML
+   - Assign each plug a Modbus slave ID and shed priority in firmware
+   - Priority 1 = shed first during limit enforcement
 
 #### E.4 PV System Integration (on ESP32)
 
@@ -582,19 +638,19 @@ Smart plugs connect via WiFi and are polled by the ESP32:
    | Inverter | ESP32 Connection | Notes |
    |----------|-----------------|-------|
    | Kostal (Modbus RTU) | RS485 via MAX3485 | Works with Modbus RTU |
-   | Kostal (Modbus TCP) | — | Not supported on ESP32 |
-   | SolarEdge | — | Use HA SolarEdge integration for monitoring on central server |
-   | SMA | — | Use HA SMA integration for monitoring on central server |
-   | Victron | — | Use HA Victron integration for monitoring on central server |
+   | Kostal (Modbus TCP) | — | Not available |
+   | SolarEdge | — | Use HA SolarEdge integration on central server |
+   | SMA | — | Use HA SMA integration on central server |
+   | Victron | — | Use HA Victron integration on central server |
 
-   The ESP32 can read a PV inverter with Modbus RTU output. For monitoring-only (no control), publish inverter data directly to HA via the built-in integration and skip the ESP32 connection.
+   The ESP32 can read a PV inverter with Modbus RTU output. For monitoring-only (no control), use HA's built-in integration on the central server and skip the ESP32 connection.
 
-2. **Data Published**
+2. **Data Sent via LoRaWAN Uplink**
 
-   | Topic | Payload |
-   |-------|---------|
-   | `lem-netz/house/<id>/sensor/pv/production` | `{"value": 3200, "unit": "W"}` |
-   | `lem-netz/house/<id>/sensor/pv/daily_yield` | `{"value": 14.2, "unit": "kWh"}` |
+   | Data Point | Encoding | Interval |
+   |------------|----------|----------|
+   | PV production (W) | 2-byte unsigned int | Every 1-5 min |
+   | PV daily yield (kWh) | 4-byte unsigned int | Every 5 min |
 
 3. **Control**
    - The ESP32 only reads PV data; it does not curtail PV production (this requires inverter-specific Modbus registers beyond ESP32 scope)
@@ -606,22 +662,22 @@ Smart plugs connect via WiFi and are polled by the ESP32:
 
    | System | ESP32 Connection | Notes |
    |--------|-----------------|-------|
-   | Generic Modbus BMS | RS485 via MAX3485 | Works if Modbus registers are documented and simple (SoC, power) |
+   | Generic Modbus BMS | RS485 via MAX3485 | Works if Modbus registers are documented (SoC, power) |
    | BYD (Modbus) | — | Use HA Modbus integration on central server instead |
    | Tesla Powerwall | — | Use HA Powerwall integration on central server |
    | FoxESS (Modbus) | — | Use HA Modbus integration on central server |
 
    For most battery systems, use the HA integration directly on the central server rather than routing through ESP32. The ESP32 connection is only needed for batteries with simple Modbus RTU interfaces.
 
-2. **Data Published**
+2. **Data Sent via LoRaWAN Uplink**
 
-   | Topic | Payload |
-   |-------|---------|
-   | `lem-netz/house/<id>/sensor/battery/soc` | `{"value": 65, "unit": "%"}` |
-   | `lem-netz/house/<id>/sensor/battery/power` | `{"value": -1500, "unit": "W"}` (negative = charging) |
+   | Data Point | Encoding | Interval |
+   |------------|----------|----------|
+   | Battery SoC (%) | 1-byte unsigned int | Every 1-5 min |
+   | Battery power (W) | 2-byte signed int (negative = charging) | Every 1-5 min |
 
 3. **Control**
-   - The ESP32 reads battery state for load management decisions
+   - The ESP32 reads battery state for local load management decisions
    - If battery control is needed (charge/discharge scheduling), it is handled by HA automations using the battery's native HA integration
 
 ### Phase F: Revenue-Aware Optimization
@@ -788,29 +844,32 @@ automation:
           qos: 2
 ```
 
-#### F.0.4 ESP32 Handler (ESPHome YAML)
+#### F.0.4 ESP32 Handler (Pseudocode)
 
-```yaml
-# ESPHome: Handle control/max_power and control/shed
-api:
-  on_mqtt_message:
-    - topic: lem-netz/house/1/control/max_power
-      then:
-        - lambda: |-
-            int new_limit = parse_json_value(x, "value");
-            id(current_max_power) = new_limit;
-            if (id(total_power) > new_limit) {
-              id(smart_plug_1).turn_off();
-            }
+The ESP32 receives downlink commands via LoRaWAN and processes them locally:
 
-    - topic: lem-netz/house/1/control/shed
-      then:
-        - lambda: |-
-            id(smart_plug_1).turn_off();
-            id(wallbox_modbus).write_register(1000, 0);
-        - mqtt.publish:
-            topic: lem-netz/house/1/status/shed
-            payload: '{"status": "executed"}'
+```c
+// On LoRaWAN downlink received
+void on_downlink(uint8_t fport, uint8_t *payload, uint8_t len) {
+    if (fport == 1 && len >= 2) {
+        // Command: max_power (2-byte unsigned int)
+        uint16_t new_limit = (payload[0] << 8) | payload[1];
+        current_max_power = new_limit;
+
+        if (total_power > new_limit) {
+            shed_lowest_priority_load();
+        }
+    }
+    else if (fport == 2 && len >= 1 && payload[0] == 0x01) {
+        // Command: shed
+        shed_all_non_essential();       // GPIO off, Modbus coil off
+        send_uplink(3, shed_confirmed); // Status: shed executed
+    }
+    else if (fport == 2 && len >= 1 && payload[0] == 0x00) {
+        // Command: restore
+        restore_all_loads();
+    }
+}
 ```
 
 #### F.0.5 Failure Detection
@@ -879,24 +938,27 @@ Each component was evaluated against the following criteria:
 | Category | Product Examples | Price (approx.) | Protocol | Notes |
 |----------|------------------|-----------------|----------|-------|
 | Wallbox | go-e Charger Gemini, Wallbe Eco 2.0, DaheimLader, Zaptec Go | €500-1200 | OCPP, Modbus, REST | go-e and DaheimLader have native HA integrations; prefer local Modbus/REST over OCPP where possible |
-| Smart Plug | **Shelly Plus Plug S** | **€17.84-20.99** | WiFi (MQTT/REST), Bluetooth | Available at [reichelt.de](https://www.reichelt.de/shelly-plus-plug-s-schwarz-shelly-plusplugb-p353366.html); power measurement included, 2500W max, local API (no cloud required) |
-| Smart Plug | Shelly Pro 4PM | €89-99 | WiFi (MQTT/REST), Ethernet | DIN-rail mount, 4 channels, power measurement per channel |
+| Smart Plug | **Shelly Pro with RS485 addon** | ~€100+ | Modbus RTU via RS485 | DIN-rail mount, Shelly Pro 4PM supports optional RS485 adapter |
+| Smart Plug | **Generic Modbus relay** (e.g., Finders) | €20-50 | Modbus RTU via RS485 | DIN-rail mount, power measurement optional; use Modbus-capable |
 | PV Inverter | SolarEdge, SMA, Kostal | varies | Modbus TCP | Most modern inverters support Modbus; check manufacturer documentation |
 | Battery | BYD, Tesla Powerwall, FoxESS | varies | Modbus, REST | Battery BMS integration depends on manufacturer API openness |
 
-**Note:** Smart plugs must support **local control** (MQTT or REST API) without cloud dependency to comply with FR06 (offline capability). Shelly devices meet this requirement with their local HTTP/MQTT API. Avoid cloud-only smart plugs.
+**Note:** Smart plugs must support **Modbus RTU** (RS485) for direct connection to the bridge device. If a plug is WiFi-only, use a Modbus-capable relay instead (e.g., Shelly Pro with RS485 addon, or a generic Modbus relay module). Avoid cloud-only smart plugs.
 
 ### 5.5 Local Controller Hardware (Phase 1+2)
 
 | Product | Price (incl. VAT) | German Shop | Use Case |
 |---------|-------------------|-------------|----------|
-| **ESP32 DevKit C** | €12-18 | [reichelt.de](https://www.reichelt.de) · [amazon.de](https://www.amazon.de) | WiFi MCU, 2 UARTs for Modbus RS485, runs ESPHome |
+| **ESP32 DevKit C** | €12-18 | [reichelt.de](https://www.reichelt.de) · [amazon.de](https://www.amazon.de) | MCU, 2 UARTs for Modbus RS485, SPI for LoRa module |
 | **MAX3485 RS485 Module** | €3-5 | [reichelt.de](https://www.reichelt.de) · [iot-shop.de](https://iot-shop.de) | Required for Modbus RTU to wallbox/inverter |
-| **USB power supply** | €5-10 | — | 5V USB power (can share outlet with iOKE868) |
+| **LoRa radio module** (RFM95W / SX1276) | €8-15 | [reichelt.de](https://www.reichelt.de) · [iot-shop.de](https://iot-shop.de) | 868 MHz LoRaWAN transceiver, SPI interface |
+| **IR optical read head** | €5-10 | [amazon.de](https://www.amazon.de) | Reads smart meter IR interface (SML protocol) |
+| **USB power supply** | €5-10 | — | 5V USB power |
+| **USB cable + enclosure** | €3-5 | — | Mounting and connectivity |
 
-| Component | Cost |
+| Component Set | Cost |
 |-----------|------|
-| **ESP32 + RS485 + PSU** | **~€20-25** |
+| **ESP32 + RS485 + LoRa + IR + PSU + enclosure** | **~€36-63** |
 
 For households requiring OCPP or Modbus TCP control (wallboxes without Modbus RTU), see the RPi-based alternative controller in Section 12.
 
@@ -920,11 +982,10 @@ For households requiring OCPP or Modbus TCP control (wallboxes without Modbus RT
 | PoE Injector | Included in UG67 bundle (reichelt.de) | €0 | — | **€0** |
 | **Central Total** | | | | **€733** |
 | | | | | |
-| Sensor (per household) | IMST iOKE868 + USB PSU | €119 + €7.50 | 1 | **€126.50** |
-| Local Controller | ESP32 + RS485 + PSU | €20-25 | 1 | **€20-25** |
-| Smart Plug (Phase 2, optional) | Shelly Plus Plug S | €18-21 | 1 | **€18-21** |
-| **Per Household (Phase 1)** | | | | **~€147-152** |
-| **Per Household (Phase 1+2)** | | | | **~€166-173** |
+| Bridge Device (per household) | ESP32 + LoRa + RS485 + IR head + PSU | €36-63 | 1 | **€36-63** |
+| Smart Plug (Phase 2, optional) | Modbus relay (e.g., Shelly Pro RS485) | €50-100 | 1 | **€50-100** |
+| **Per Household (Phase 1)** | | | | **~€36-63** |
+| **Per Household (Phase 1+2)** | | | | **~€86-163** |
 
 **Central cost exceeds the €300 target.** This is driven by the UG67 gateway (€588). Options to reduce:
 - Use Dragino DLOS8N (€225) instead of UG67 → central total ~€370, but risks at scale
@@ -946,12 +1007,10 @@ For households requiring OCPP or Modbus TCP control (wallboxes without Modbus RT
 | Network equipment | €20-50 | €0 (PoE included) | ✓ Under budget |
 | **Central Total** | **≤ €300** | **€733** | ⚠ Exceeds target |
 | | | | |
-| Sensor per household | €100-150 | €119 (iOKE868) | ✓ Within budget |
-| Power supply (optional) | €0-20 | €7.50 (USB PSU) | ✓ Within budget |
-| Local Controller | €15-25 | €20-25 (ESP32) | ✓ Within budget |
-| **Per Household (Phase 1)** | **≤ €200** | **~€147-152** | ✓ Within budget |
-| Smart Plug (Phase 2, optional) | €0-50 | €18-21 | ✓ Within budget |
-| **Per Household (Phase 1+2)** | **≤ €350** | **~€166-173** | ✓ Within budget |
+| Bridge Device per household | €30-70 | €36-63 (ESP32 + LoRa + RS485 + IR + PSU) | ✓ Within budget |
+| **Per Household (Phase 1)** | **≤ €200** | **~€36-63** | ✓ Well within budget |
+| Smart Plug (Phase 2, per device) | €20-100 | €50-100 (Modbus relay) | ✓ Within budget |
+| **Per Household (Phase 1+2)** | **≤ €350** | **~€86-163** | ✓ Within budget |
 
 **Note:** Central total exceeds the €300 target primarily due to the Milesight UG67 gateway (€588). See Section 5.7 for cost reduction options.
 
@@ -960,9 +1019,9 @@ For households requiring OCPP or Modbus TCP control (wallboxes without Modbus RT
 | Category | Target | Actual | Notes |
 |----------|--------|--------|-------|
 | Control integration | €0-50 | €0 | Use existing devices where possible; EVCC/HAEO are free open source |
-| Smart plugs (per device) | €20-40 | €18-21 | Shelly Plus Plug S from reichelt.de |
+| Smart plugs (per device) | €20-100 | €50-100 | Modbus-capable relay (e.g., Shelly Pro RS485) |
 | Additional software | €0 | €0 | HAEO, EVCC, AkkudoktorEOS — all open source |
-| **Phase 2 Add-on** | **≤ €150/household** | **€18-21** (or €0 if existing devices) | ✓ Within budget |
+| **Phase 2 Add-on** | **≤ €150/household** | **€50-100** (or €0 if existing Modbus devices) | ✓ Within budget |
 
 ### 6.3 Cost Optimization Tips
 
@@ -971,8 +1030,8 @@ For households requiring OCPP or Modbus TCP control (wallboxes without Modbus RT
 - Install gateway in central location to maximize range
 - Bulk purchase sensors for volume discount
 - Leverage existing devices (wallboxes, PV) already owned by households
-- Use open-source software (ESPHome, Home Assistant) to avoid licensing costs
-- If a household already runs Home Assistant, consider integrating directly via Remote HA add-on instead of adding an ESP32
+- Use open-source software (Arduino/PlatformIO, Home Assistant) to avoid licensing costs
+- If a household already runs Home Assistant and has Modbus devices, consider integrating directly via HA Modbus integration instead of adding an ESP32
 
 ---
 
@@ -1000,8 +1059,8 @@ For households requiring OCPP or Modbus TCP control (wallboxes without Modbus RT
 | Intermittent data | Weak wireless signal | Add intermediate sensor or move gateway |
 | Gateway offline | Network issue | Check Ethernet/PoE connection |
 | No MQTT data | Wrong MQTT config | Verify broker IP and port in gateway |
-| Local controller offline | Power or WiFi issue | Check USB power and WiFi connection at household; verify MQTT broker address |
-| Local controller not publishing | Wrong topic prefix | Verify household ID in config matches `lem-netz/house/<id>/...` |
+| Bridge device offline | Power or LoRa issue | Check USB power; verify device is joined to LoRaWAN network |
+| No uplink data from bridge | Wrong DevEUI/AppKey | Verify device registration on network server |
 | No Modbus data from wallbox | RS485 wiring issue | Check A/B polarity and termination resistors on RS485 bus |
 
 ### 8.2 Common Issues - Phase 2
@@ -1013,19 +1072,19 @@ For households requiring OCPP or Modbus TCP control (wallboxes without Modbus RT
 | Price data not updating | API rate limit | Check integration logs; EPEX API may throttle |
 | Optimization causing loss | Wrong household config | Verify tariff type setting in HA |
 | §14a not working | No Smart Meter (iMSys) | Requires iMSys installation for Module 3 |
-| Watchdog not firing | MQTT topic mismatch | Verify `control/max_power` topic matches ESP32 subscription |
-| Watchdog Stage 1 not reducing load | ESP32 not receiving limit | Subscribe to `lem-netz/house/<id>/control/#` to verify messages arrive |
-| Watchdog Stage 2 shed not executed | ESP32 offline | Check WiFi connection; verify sensor data still arriving via LoRaWAN |
+| Watchdog not firing | Network server config | Verify MQTT forwarding from gateway/network server to HA |
+| Watchdog Stage 1 not reducing load | ESP32 not receiving downlink | Check LoRaWAN downlink queue; verify ESP32 is not in silent mode |
+| Watchdog Stage 2 shed not executed | ESP32 offline | Check power; verify device last seen on network server |
 | False positive overload | Sensor drift | Check virtual transformer calculation — sum of all households |
-| Shed not acknowledged | ESP32 crashed | Restart ESP32; check ESPHome logs |
+| Shed not acknowledged | ESP32 crashed | Restart ESP32; check serial logs |
 
 ### 8.3 Diagnostics
 
 1. **Check sensor LED status** - Should indicate join and transmit
 2. **Check gateway web interface** - Shows joined devices and uplink count
 3. **Check MQTT topics** - Subscribe to `lem-netz/#` for all LEM messages
-4. **Check ESPHome logs** - Connect to ESP32 via ESPHome dashboard or serial
-5. **Check wallbox Modbus** - On ESP32, verify Modbus register reads in ESPHome logs
+4. **Check bridge serial logs** - Connect to ESP32 via USB serial monitor
+5. **Check wallbox Modbus** - On ESP32, verify Modbus register reads in serial debug output
 6. **Check Home Assistant logs** - Settings → System → Logs
 7. **Check price integration** - Verify EPEX/provider connectivity
 
@@ -1117,7 +1176,7 @@ Example HAEO network model:
 
 ## 12. Appendix B: Alternative Controller (RPi for OCPP/Modbus TCP)
 
-If a household has devices that only support **OCPP** (e.g., Wallbox Pulsar Plus) or **Modbus TCP** (no RS485 port), the ESP32 cannot interface with them. Use a Raspberry Pi Zero 2W as the local controller instead.
+If a household has devices that only support **OCPP** (e.g., Wallbox Pulsar Plus) or **Modbus TCP** (no RS485 port), the ESP32 cannot interface with them. Use a Raspberry Pi Zero 2W with WiFi/MQTT direct to the central server instead.
 
 | Component | Purpose | Cost |
 |-----------|---------|------|
@@ -1130,11 +1189,11 @@ If a household has devices that only support **OCPP** (e.g., Wallbox Pulsar Plus
 **Setup:**
 1. Flash Raspberry Pi OS Lite to SD card
 2. Install Python agent (pre-built script from central server repo)
-3. Configure `config.yaml` with household ID, MQTT broker URL, device list
+3. Configure `config.yaml` with household ID, MQTT broker URL, device list, IR reader
 4. Set up systemd service for auto-start
 5. Use EVCC as OCPP client for wallbox control if needed
 
-The RPi uses the same MQTT topics as the ESP32 (`lem-netz/house/<id>/control/*`, `sensor/*`, `status/*`). All watchdog, price integration, and optimization logic on the central server remains identical — only the local controller hardware changes.
+Unlike the ESP32 bridge, the RPi connects via **MQTT over WiFi** directly to the central broker (bypassing LoRaWAN). This is the exception — only for households that require OCPP or Modbus TCP. All MQTT topics and central server logic remain identical.
 
 ---
 

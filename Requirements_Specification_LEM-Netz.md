@@ -431,45 +431,50 @@ The system MUST support the following German household configurations:
 
 ### 7.1 Conceptual Overview - Phase 1
 
+All communication between households and the central server uses LoRaWAN 868 MHz. MQTT is used only on the local LAN between the outdoor gateway and the server.
+
 ```
 ┌────────────────────────────────────────────────────────────────────┐
-│                        LEM-NETZ SYSTEM                            │
+│                   LEM-NETZ SYSTEM (Phase 1)                       │
 ├────────────────────────────────────────────────────────────────────┤
 │                                                                    │
-│  LAYER 1: HOUSEHOLD (Edge)                                        │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐         │
-│  │  Household 1 │    │  Household 2 │    │  Household N│         │
-│  │  Smart Meter │    │  Smart Meter │    │  Smart Meter│         │
-│  │  ┌────────┐  │    │  ┌────────┐  │    │  ┌────────┐  │         │
-│  │  │Sensor  │  │    │  │Sensor  │  │    │  │Sensor  │  │         │
-│  │  │+Wireless│  │    │  │+Wireless│  │    │  │+Wireless│  │         │
-│  │  └────────┘  │    │  └────────┘  │    │  └────────┘  │         │
-│  └──────┬───────┘    └──────┬───────┘    └──────┬───────┘         │
-│         │                    │                    │                 │
-│         └────────────────────┴────────────────────┘                │
-│                              │                                     │
-│                              ▼                                     │
-│  LAYER 2: COMMUNICATION (Gateway)                                 │
-│  ┌──────────────────────────────────────────────┐                 │
-│  │     Outdoor Gateway (IP67 rated)             │                 │
-│  │     - Receives wireless data                 │                 │
-│  │     - Forwards to central server             │                 │
-│  └──────────────────────┬───────────────────────┘                 │
-│                         │                                          │
-│                         ▼                                          │
-│  LAYER 3: CENTRAL (Server)                                        │
-│  ┌──────────────────────────────────────────────┐                 │
-│  │     Local Server                             │                 │
-│  │     - MQTT Broker                            │                 │
-│  │     - Home Automation Platform               │                 │
-│  │     - Database                               │                 │
-│  │     - Dashboard                              │                 │
-│  └──────────────────────────────────────────────┘                 │
+│  ┌──────────────────────────────────────────────────────────────┐ │
+│  │  HOUSEHOLD DOMAIN (×N)                                       │ │
+│  │  ┌──────────────────┐  ┌──────────────────┐  ┌────────────┐ │ │
+│  │  │   Household 1    │  │   Household 2    │  │  House N   │ │ │
+│  │  │  ┌────────────┐  │  │  ┌────────────┐  │  │ ┌────────┐ │ │ │
+│  │  │  │  Bridge    │  │  │  │  Bridge    │  │  │ │ Bridge │ │ │ │
+│  │  │  │  Device    │  │  │  │  Device    │  │  │ │ Device │ │ │ │
+│  │  │  │  (LoRaWAN) │  │  │  │  (LoRaWAN) │  │  │ │(LoRaWN)│ │ │ │
+│  │  │  │  + IR      │  │  │  │  + IR      │  │  │ │ + IR   │ │ │ │
+│  │  │  └─────┬──────┘  │  │  └──────┬─────┘  │  │ └───┬────┘ │ │ │
+│  │  └────────┼─────────┘  └─────────┼─────────┘  └─────┼──────┘ │ │
+│  │           │                       │                    │       │ │
+│  │           └───────────────────────┴────────────────────┘       │ │
+│  │                              │ LoRaWAN 868 MHz                  │ │
+│  └──────────────────────────────┼──────────────────────────────────┘ │
+│                                 ▼                                    │
+│  ┌──────────────────────────────────────────────────────────────┐  │
+│  │  OUTDOOR GATEWAY (IP67, Milesight UG67)                      │  │
+│  │  LoRaWAN ↔ MQTT translator — receives uplinks, forwards     │  │
+│  │  downlinks — connected via Ethernet to central server        │  │
+│  └──────────────────────────────┬───────────────────────────────┘  │
+│                                 │ Ethernet (MQTT)                    │
+│                                 ▼                                   │
+│  ┌──────────────────────────────────────────────────────────────┐  │
+│  │  NEIGHBORHOOD NETWORK                                        │  │
+│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐   │  │
+│  │  │ MQTT Broker  │  │  Database    │  │   Dashboard      │   │  │
+│  │  │ (Mosquitto)  │  │ (InfluxDB)   │  │     (HA)         │   │  │
+│  │  └──────────────┘  └──────────────┘  └──────────────────┘   │  │
+│  └──────────────────────────────────────────────────────────────┘  │
 │                                                                    │
 └────────────────────────────────────────────────────────────────────┘
 ```
 
 ### 7.2 Extended Architecture - Phase 2
+
+Phase 2 adds Modbus control to the same bridge device. The bridge reads the smart meter (IR), controls home devices (Modbus RTU), and communicates with the central server via LoRaWAN — no WiFi needed.
 
 ```
 ┌────────────────────────────────────────────────────────────────────┐
@@ -477,44 +482,15 @@ The system MUST support the following German household configurations:
 ├────────────────────────────────────────────────────────────────────┤
 │                                                                    │
 │  ┌─────────────────────────────────────────────────────────────┐  │
-│  │                      HOUSEHOLD LAYER                        │  │
-│  │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐        │  │
-│  │  │Smart    │  │Smart    │  │Smart    │  │Smart    │        │  │
-│  │  │Meter    │  │Meter    │  │Meter    │  │Meter    │        │  │
-│  │  │  IR     │  │  IR     │  │  IR     │  │  IR     │        │  │
-│  │  └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘        │  │
-│  │       │            │            │            │               │  │
-│  │  ┌────┴────┐  ┌────┴────┐  ┌────┴────┐  ┌────┴────┐        │  │
-│  │  │ Sensor  │  │ Sensor  │  │ Sensor  │  │ Sensor  │        │  │
-│  │  │   +    │  │   +    │  │   +    │  │   +    │        │  │
-│  │  │Control  │  │Control  │  │Control  │  │Control  │        │  │
-│  │  │Device   │  │Device   │  │Device   │  │Device   │        │  │
-│  │  └─────────┘  └─────────┘  └─────────┘  └─────────┘        │  │
-│  │       │            │            │            │               │  │
-│  │       ▼            ▼            ▼            ▼               │  │
-│  │  [Wallbox]   [Smart Plug]  [PV Inverter]  [Battery]         │  │
-│  └───────────────────────────┬──────────────────────────────────┘  │
-│                              │                                     │
-│                              ▼                                     │
-│  ┌─────────────────────────────────────────────────────────────┐  │
-│  │                    GATEWAY LAYER                             │  │
-│  │  ┌──────────────────────────────────────────┐               │  │
-│  │  │  Outdoor Gateway (IP67)                   │               │  │
-│  │  │  - Wireless receiver (868 MHz)           │               │  │
-│  │  │  - Network server (optional)              │               │  │
-│  │  └──────────────────────┬───────────────────┘               │  │
-│  └─────────────────────────┼────────────────────────────────────┘  │
-│                            │                                       │
-│                            ▼                                       │
-│  ┌─────────────────────────────────────────────────────────────┐  │
-│  │                    CENTRAL SERVER LAYER                      │  │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐           │  │
-│  │  │MQTT Broker │  │  Database   │  │  Dashboard │           │  │
-│  │  └──────┬──────┘  └──────┬──────┘  └─────────────┘           │  │
-│  │         │                │                                   │  │
+│  │  NEIGHBORHOOD NETWORK (Local Server)                        │  │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌──────────────────┐    │  │
+│  │  │MQTT Broker  │  │  Database   │  │  Dashboard       │    │  │
+│  │  │ (Mosquitto) │  │ (InfluxDB)  │  │  (Home Assistant)│    │  │
+│  │  └──────┬──────┘  └──────┬──────┘  └────────┬─────────┘    │  │
+│  │         │                │                    │              │  │
 │  │  ┌──────┴──────┐  ┌──────┴──────┐                            │  │
-│  │  │Price Import│  │  Optimization│                           │  │
-│  │  │(EPEX API)  │  │  Engine     │                            │  │
+│  │  │Price Import │  │ Optimization│                            │  │
+│  │  │(EPEX API)   │  │ Engine      │                            │  │
 │  │  └─────────────┘  └─────────────┘                            │  │
 │  │         │                │                                   │  │
 │  │         ▼                ▼                                   │  │
@@ -524,6 +500,30 @@ The system MUST support the following German household configurations:
 │  │  │  - Household Revenue Model Config           │             │  │
 │  │  │  - Load Coordination                        │             │  │
 │  │  └─────────────────────────────────────────────┘             │  │
+│  └───────────────────┬─────────────────────────────────────────┘  │
+│                      │ MQTT over Ethernet (LAN)                    │
+│  ┌───────────────────┴─────────────────────────────────────────┐  │
+│  │  OUTDOOR GATEWAY (Milesight UG67, IP67)                      │  │
+│  │  LoRaWAN ↔ MQTT — translates between wireless and LAN       │  │
+│  └───────────────────┬─────────────────────────────────────────┘  │
+│                      │ LoRaWAN 868 MHz (uplink + downlink)        │
+│  ┌───────────────────┴─────────────────────────────────────────┐  │
+│  │  BRIDGE DEVICE (×N) — one per household                     │  │
+│  │  ┌──────────────────────────────────────────────────────┐   │  │
+│  │  │  • LoRaWAN uplink (sensor data) + downlink (limits)  │   │  │
+│  │  │  • IR optical: reads smart meter                      │   │  │
+│  │  │  • Modbus RTU (RS485): controls home devices          │   │  │
+│  │  │  • Enforces power limits, executes shed commands      │   │  │
+│  │  │  • Buffers data during LoRaWAN outages                │   │  │
+│  │  └──────────────────────────────────────────────────────┘   │  │
+│  │                      │ Modbus RTU (RS485)                     │
+│  │  ┌──────────────────────────────────────────────────────┐   │  │
+│  │  │  HOUSEHOLD DEVICES (varies per home)                  │   │  │
+│  │  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────┐ │   │  │
+│  │  │  │ Wallbox  │  │PV Inverter│  │ Battery  │  │Smart │ │   │  │
+│  │  │  │ (Modbus) │  │ (Modbus) │  │ (Modbus) │  │Plug  │ │   │  │
+│  │  │  └──────────┘  └──────────┘  └──────────┘  └──────┘ │   │  │
+│  │  └──────────────────────────────────────────────────────┘   │  │
 │  └─────────────────────────────────────────────────────────────┘  │
 │                                                                    │
 └────────────────────────────────────────────────────────────────────┘
@@ -531,19 +531,17 @@ The system MUST support the following German household configurations:
 
 ### 7.3 Component Categories (Generic)
 
-| Layer | Component Category | Phase | Description |
-|-------|------------------|-------|-------------|
-| Edge | Energy Sensor | 1 | Optical reader attached to smart meter |
-| Edge | Wireless Transmitter | 1 | Integrated in sensor unit |
-| Edge | Control Device | 2 | Wallbox, smart plug, battery inverter |
-| Gateway | Outdoor Wireless Receiver | 1 | Weatherproof, ceiling-mounted |
-| Gateway | Network Bridge | 1 | Ethernet/WiFi to central server |
-| Central | Server Platform | 1 | Runs locally, no cloud |
-| Central | Message Broker | 1 | MQTT for data transport |
-| Central | Database | 1 | Local time-series storage |
-| Central | Price Importer | 2 | EPEX Spot market integration |
-| Central | Optimization Engine | 2 | Control logic with revenue awareness |
-| Central | Dashboard | 1 | User interface for viewing data |
+| Domain | Component Category | Phase | Description |
+|--------|-------------------|-------|-------------|
+| Household | Bridge Device | 1+2 | ESP32 with LoRa radio + IR read head + Modbus RS485; reads meter, controls devices, communicates via LoRaWAN |
+| Household | Control Device | 2 | Wallbox, smart plug, battery inverter (Modbus RTU) |
+| Gateway | Outdoor Gateway | 1 | LoRaWAN ↔ MQTT translator; weatherproof, Ethernet to LAN |
+| Neighborhood | Server Platform | 1 | Runs locally, no cloud |
+| Neighborhood | Message Broker | 1 | MQTT for data transport (LAN side only) |
+| Neighborhood | Database | 1 | Local time-series storage |
+| Neighborhood | Price Importer | 2 | EPEX Spot market integration |
+| Neighborhood | Optimization Engine | 2 | Control logic with revenue awareness |
+| Neighborhood | Dashboard | 1 | User interface for viewing data |
 
 *Note: Specific products are NOT specified at requirements level.*
 
