@@ -188,7 +188,7 @@ Phase 2 adds intelligent control capabilities while ensuring economic fairness a
 
 **FR11a: Transformer Load Limiting**
 - The system SHALL continuously monitor the virtual transformer total (sum of all household power).
-- The system SHALL enforce a configurable maximum threshold (e.g., 80% of transformer rating) to prevent overload.
+- The system SHALL enforce a configurable maximum threshold (e.g., 75% of transformer rating) to prevent overload.
 - When approaching the threshold, the system SHALL automatically shed or reduce load across households.
 - *Rationale:* CRITICAL - Grid stability is non-negotiable. A transformer overload would damage infrastructure and blackout the entire community.
 
