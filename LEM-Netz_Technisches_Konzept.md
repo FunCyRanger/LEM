@@ -2,7 +2,7 @@
 
 ## Implementation Guide for Phase 1 + Phase 2
 
-**Version:** 3.2
+**Version:** 3.3
 **Status:** Review (incorporating open-source optimization recommendations)
 **Purpose:** Translate Requirements into Implementation
 
@@ -38,67 +38,79 @@ Based on the requirements, the following technical categories are needed:
 | FR16-20 | Control Integration | Wallbox, smart plug, PV, battery APIs | 2 |
 | NF01 | Outdoor Gateway | IP67 rated, weatherproof | 1 |
 | FR07, FR09 | Central Server | MQTT broker, local database, dashboard | 1 |
+| FR16-20, FR06 | Per-Household Local Controller | Bridges local Modbus/WiFi devices to central MQTT; buffers data during outages | 1+2 |
 
 ### 2.2 System Diagram - Phase 1 + 2
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                     LEM-NETZ IMPLEMENTATION                     │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  [House 1]           [House 2]           [House N]              │
-│  ┌─────────┐        ┌─────────┐        ┌─────────┐            │
-│  │Smart    │        │Smart    │        │Smart    │            │
-│  │Meter    │        │Meter    │        │Meter    │            │
-│  │  IR     │        │  IR     │        │  IR     │            │
-│  └────┬────┘        └────┬────┘        └────┬────┘            │
-│       │                  │                  │                   │
-│       ▼                  ▼                  ▼                   │
-│  ┌─────────────────────────────────────────────────────────┐     │
-│  │  ENERGY SENSOR (per household)                          │     │
-│  │  • Optical IR reader                                   │     │
-│  │  • SML decoder                                         │     │
-│  │  • Wireless transmitter (868 MHz)                     │     │
-│  │  • Power: USB or battery                               │     │
-│  └──────────────────────┬────────────────────────┬────────┘     │
-│                         │  Wireless (868 MHz)     │               │
-│                         │  Range: 1km+            ▼               │
-│                    ┌────┴─────────────────────────┴────┐         │
-│                    │      CONTROL DEVICES             │         │
-│                    │  • Wallbox (EV charging)        │         │
-│                    │  • Smart plugs                  │         │
-│                    │  • PV inverter                 │         │
-│                    │  • Battery BMS                 │         │
-│                    └──────────────────────────────────┘         │
-│                              │                                   │
-│                              ▼                                   │
-│  ┌─────────────────────────────────────────────────────────┐     │
-│  │  OUTDOOR GATEWAY                                        │     │
-│  │  • IP67 weatherproof enclosure                         │     │
-│  │  • 8-channel wireless receiver                        │     │
-│  │  • Built-in network server (optional)                  │     │
-│  │  • Ethernet/PoE output                                 │     │
-│  └──────────────────────┬────────────────────────────────┘     │
-│                         │  Ethernet                              │
-│                         ▼                                        │
-│  ┌─────────────────────────────────────────────────────────┐     │
-│  │  CENTRAL SERVER                                         │     │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌───────────────┐    │     │
-│  │  │MQTT Broker │  │  Database   │  │  Dashboard   │    │     │
-│  │  │(Mosquitto) │  │ (InfluxDB)  │  │    (HA)      │    │     │
-│  │  └─────────────┘  └─────────────┘  └───────────────┘    │     │
-│  │         │                │                │                │     │
-│  │         ▼                ▼                ▼                │     │
-│  │  ┌─────────────────────────────────────────────────────┐  │     │
-│  │  │         OPTIMIZATION ENGINE                         │  │     │
-│  │  │  ┌────────────────┐  ┌─────────────────────────┐   │  │     │
-│  │  │  │ Price Import   │  │ Control Logic           │   │  │     │
-│  │  │  │ (EPEX, Tibber) │  │ (Revenue-aware)         │   │  │     │
-│  │  │  └────────────────┘  └─────────────────────────┘   │  │     │
-│  │  └─────────────────────────────────────────────────────┘  │     │
-│  └─────────────────────────────────────────────────────────┘     │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                      LEM-NETZ IMPLEMENTATION                       │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  [HOUSE 1]                 [HOUSE 2]                 [HOUSE N]     │
+│  ┌──────────────────┐    ┌──────────────────┐    ┌──────────────┐  │
+│  │  ENERGY METER    │    │  ENERGY METER    │    │ ENERGY METER │  │
+│  │  (IR interface)  │    │  (IR interface)  │    │ (IR inter.)  │  │
+│  └──────┬───────────┘    └──────┬───────────┘    └──────┬───────┘  │
+│         │                       │                       │          │
+│         ▼                       ▼                       ▼          │
+│  ┌──────────────────┐    ┌──────────────────┐    ┌──────────────┐  │
+│  │ iOKE868 SENSOR   │    │ iOKE868 SENSOR   │    │ iOKE868 SEN. │  │
+│  │ (LoRaWAN 868MHz) │    │ (LoRaWAN 868MHz) │    │ (LoRaWAN)    │  │
+│  └──────┬───────────┘    └──────┬───────────┘    └──────┬───────┘  │
+│         │                       │                       │          │
+│  ┌──────┴───────────┐    ┌──────┴───────────┐    ┌──────┴───────┐  │
+│  │ CONTROL DEVICES  │    │ CONTROL DEVICES  │    │CONTROL DEV.  │  │
+│  │ • Wallbox        │    │ • Wallbox        │    │ • Smart Plug │  │
+│  │ • PV inverter    │    │ • Smart Plug     │    │ • Battery    │  │
+│  │ • Battery BMS    │    │                   │    │              │  │
+│  └──────┬───────────┘    └──────┬───────────┘    └──────┬───────┘  │
+│         │ Modbus/WiFi           │ Modbus/WiFi           │ Modbus   │
+│         ▼                       ▼                       ▼          │
+│  ┌──────────────────┐    ┌──────────────────┐    ┌──────────────┐  │
+│  │ LOCAL CONTROLLER │    │ LOCAL CONTROLLER │    │LOCAL CONTR.  │  │
+│  │ (Tier 1/2/3)     │    │ (Tier 1/2/3)     │    │(Tier 1/2/3)  │  │
+│  │ ESP32 / RPi / HA │    │ ESP32 / RPi / HA │    │ESP32 / RPi   │  │
+│  └──────┬───────────┘    └──────┬───────────┘    └──────┬───────┘  │
+│         │    MQTT over          │    MQTT over          │   MQTT    │
+│         │    WiFi/Internet      │    WiFi/Internet      │   over    │
+│         │    (TLS)              │    (TLS)              │   Mesh    │
+│         │         │             │         │             │     │     │
+│         └─────────┼─────────────┴─────────┼─────────────┴─────┘     │
+│                   │                       │                         │
+│          ┌────────┴───────────────────────┴──────────┐              │
+│          │    OUTDOOR GATEWAY (Milesight UG67)       │              │
+│          │    • LoRaWAN 868 MHz packet forwarder      │              │
+│          │    • MQTT (via MQTT) to central server     │              │
+│          └──────────────────────┬────────────────────┘              │
+│                                 │ Ethernet                          │
+│                                 ▼                                   │
+│  ┌──────────────────────────────────────────────────────────────┐   │
+│  │  CENTRAL SERVER (Home Assistant Green / RPi 5)              │   │
+│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │   │
+│  │  │ MQTT Broker  │  │  Database    │  │   Dashboard      │  │   │
+│  │  │ (Mosquitto)  │  │ (InfluxDB)   │  │     (HA)         │  │   │
+│  │  └──────┬───────┘  └──────┬───────┘  └────────┬─────────┘  │   │
+│  │         │                  │                    │            │   │
+│  │         ▼                  ▼                    ▼            │   │
+│  │  ┌────────────────────────────────────────────────────────┐  │   │
+│  │  │              OPTIMIZATION ENGINE                       │  │   │
+│  │  │  ┌─────────────────┐  ┌──────────────────────────┐    │  │   │
+│  │  │  │  Price Import   │  │  Control Logic           │    │  │   │
+│  │  │  │ (EPEX, Tibber)  │  │  (Revenue-aware)         │    │  │   │
+│  │  │  └─────────────────┘  └──────────────────────────┘    │  │   │
+│  │  │         │                                               │  │   │
+│  │  │         ▼                                               │  │   │
+│  │  │  ┌──────────────────────────────────────────────────┐   │  │   │
+│  │  │  │  INFRASTRUCTURE WATCHDOG                         │   │  │   │
+│  │  │  │  • Monitors virtual transformer                  │   │  │   │
+│  │  │  │  • Issues MQTT shed commands to local controllers│   │  │   │
+│  │  │  │  • 80% trigger / 60% hysteresis                  │   │  │   │
+│  │  │  └──────────────────────────────────────────────────┘   │  │   │
+│  │  └────────────────────────────────────────────────────────┘  │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -179,6 +191,41 @@ Based on the requirements, the following technical categories are needed:
    - Enter AppKey from configuration
    - Device will join automatically
 
+#### B.3 Local Controller Setup (20-45 minutes, depends on tier)
+
+1. **Select Tier (see Section 3.2.2)**
+   - **Tier 1 (ESP32):** For households with ≤2 Modbus devices, basic load shedding only
+   - **Tier 2 (RPi Zero 2W):** For households with PV, battery, wallbox requiring full integration
+   - **Tier 3 (Existing HA):** If household already runs Home Assistant
+
+2. **Tier 1 — ESP32/ESPHome Setup**
+   - Flash ESPHome firmware via USB (first-time) or OTA (updates)
+   - Connect MAX3485 RS485 transceiver: ESP32 GPIO16 (TX)→ RS485, GPIO17 (RX) ← RS485
+   - Wire RS485 A/B to wallbox or inverter Modbus terminals
+   - Write ESPHome YAML with Modbus client, MQTT topics per Section 3.2.1
+   - Configure WiFi SSID/password for household network
+   - Set MQTT broker address to central server IP (or DDNS hostname)
+   - Enable MQTT TLS with self-signed or Let's Encrypt certificate
+   - Test: verify sensor data appears on `lem-netz/house/<id>/sensor/...`
+
+3. **Tier 2 — RPi Zero 2W Setup**
+   - Flash Raspberry Pi OS Lite to SD card
+   - Install Node-RED or Python agent (pre-built script from central server repo)
+   - Optional: Connect RS485 USB dongle for Modbus RTU devices
+   - Configure `config.yaml` with:
+     - Household ID (1, 2, 3, ...)
+     - MQTT broker URL, port, TLS certificate path
+     - Device list (wallbox, PV, battery) with Modbus register maps or API endpoints
+   - Enable local buffering: SQLite database logs all readings
+   - Set up systemd service for auto-start
+   - Test: `mosquitto_pub` and `mosquitto_sub` to verify MQTT link
+
+4. **Tier 3 — Existing HA Bridge**
+   - Install "Remote Home-Assistant" add-on in local HA instance
+   - Configure connection to central HA URL and API token
+   - Select entities to expose to central
+   - OR: Install Mosquitto broker locally on existing HA and bridge to central broker
+
 ### Phase C: Data Verification (30 minutes)
 
 #### C.1 Verify Data Flow
@@ -235,11 +282,95 @@ The system SHALL remain functional without internet. Here is how each layer hand
 | Layer | Component | Offline Behavior | Data Retention |
 |-------|-----------|-----------------|----------------|
 | Edge | iOKE868 sensor | Continues measuring and transmitting; no store-and-forward | Last reading only (no buffer) |
+| Local Control | ESP32 / RPi / existing HA | Continues polling local devices (wallbox, PV, battery); buffers readings when MQTT link to central is down; executes watchdog shed commands regardless of connectivity | Configurable buffer (hours to days on RPi; limited on ESP32) |
 | Gateway | Milesight UG67 | Continues receiving LoRa packets; forwards when connection restored | Built-in NS queues data |
 | MQTT | Mosquitto broker | All local, no internet dependency | Retained messages on topics |
 | Server | Home Assistant | Continues running; dashboard and automations work locally | Full database local |
 
 **No component requires internet for core operation.** The price optimizations in Phase 2 require intermittent internet for EPEX/Tibber data, but the system degrades gracefully: if price data is unavailable, optimization falls back to default charging patterns.
+
+---
+
+## 3.2 Per-Household Local Integration
+
+Control devices (wallbox, PV inverter, battery BMS, smart plugs) are located inside each household and cannot connect directly to the central server. Each house requires a **local controller** that bridges household devices to the central MQTT broker.
+
+### 3.2.1 MQTT Topic Hierarchy
+
+All local controllers communicate with the central server via a standardized MQTT topic structure:
+
+```
+lem-netz/house/<household_id>/sensor/<device>/<metric>     # Data from house to central
+lem-netz/house/<household_id>/command/<action>              # Commands from central to house
+lem-netz/house/<household_id>/status/<action>               # Confirmations from house to central
+lem-netz/house/<household_id>/heartbeat                     # Connectivity alive signal
+```
+
+**Example topics:**
+
+| Topic | Direction | Payload | Description |
+|-------|-----------|---------|-------------|
+| `lem-netz/house/1/sensor/wallbox/power` | House → Central | `{"value": 4500, "unit": "W"}` | Wallbox current power consumption |
+| `lem-netz/house/1/sensor/pv/production` | House → Central | `{"value": 3200, "unit": "W"}` | PV current production |
+| `lem-netz/house/1/sensor/battery/soc` | House → Central | `{"value": 65, "unit": "%"}` | Battery state of charge |
+| `lem-netz/house/1/command/shed` | Central → House | `{"reason": "transformer_overload", "severity": "critical"}` | Shed non-essential loads |
+| `lem-netz/house/1/status/shed` | House → Central | `{"status": "executed", "loads_shed": ["wallbox", "smart_plug_1"]}` | Shed confirmation |
+| `lem-netz/house/1/heartbeat` | House → Central | `{"uptime": 3600, "tier": "2"}` | Alive signal |
+
+### 3.2.2 Local Controller Tiers
+
+Different households have different needs and existing equipment. The architecture supports three tiers:
+
+| Tier | Hardware | Cost (approx.) | Protocol Support | Data Buffering | Best For |
+|------|----------|----------------|-----------------|----------------|----------|
+| **1** | ESP32 + RS485 module + ESPHome | €15-25 | Modbus RTU (1-2 devices), WiFi MQTT | Limited (last values) | Basic load shedding, single wallbox or smart plug |
+| **2** | Raspberry Pi Zero 2W + Python/Node-RED agent | €35-55 | Modbus TCP/RTU, OCPP client, REST APIs, WiFi MQTT | Hours to days (SD card) | Full integration with PV, battery, wallbox, multiple devices |
+| **3** | Existing Home Assistant instance | €0 (already present) | All HA integrations, Remote HA or MQTT bridge | Full (HA database) | Households already running HA |
+
+**Tier 1 (ESP32/ESPHome):**
+- Runs ESPHome firmware — connects to central HA via native API or MQTT
+- Modbus RTU via UART + MAX3485 transceiver for wallbox/inverter
+- Simple YAML configuration, no coding required
+- Power: USB 5V (can share with iOKE868 power supply)
+- Security: MQTT over TLS, unique device authentication per house
+
+**Tier 2 (RPi Zero 2W):**
+- Runs a lightweight Python agent or Node-RED flows
+- Supports Modbus TCP (Ethernet/WiFi) and Modbus RTU (USB/GPIO)
+- Can run EVCC as OCPP client for wallbox control
+- Local SQLite database buffers all readings when MQTT link is down
+- Periodic heartbeat confirms connectivity; watchdog checks time since last heartbeat
+
+**Tier 3 (Existing HA):**
+- Use "Remote Home-Assistant" add-on to bridge entities to central HA
+- Or: MQTT auto-discovery — local HA publishes all device entities to central MQTT broker
+- Zero additional hardware cost
+- Requires household to already run HA competently
+
+### 3.2.3 Backhaul Options
+
+The link between the local controller and the central MQTT broker depends on the household's network situation:
+
+| Option | Description | Internet Required? | Security | Latency |
+|--------|-------------|-------------------|----------|---------|
+| **MQTT over LAN/WiFi** | Controller connects to central broker via local Ethernet/WiFi | No | TLS + password | <1ms |
+| **MQTT over Internet** | Controller connects to central broker via house's existing internet (DDNS/VPN) | Yes | TLS + client certificate | 10-50ms |
+| **Community WiFi Mesh** | Dedicated neighborhood mesh (e.g., batman-adv, OpenWrt mesh) | No | WPA2 + TLS | 1-5ms |
+| **LoRaWAN status only** | Basic heartbeat and watchdog status via LoRaWAN downlink | No | AES-128 | seconds |
+
+**Recommendation:** Default to MQTT over the household's existing internet connection with TLS + client certificate. This requires no additional infrastructure and works for any tier. For offline-critical deployment (FR06), add a community WiFi mesh or accept that watchdog commands are sent via LoRaWAN downlink as fallback.
+
+### 3.2.4 Device Mapping Per Tier
+
+| Device | Tier 1 (ESP32) | Tier 2 (RPi Zero) | Tier 3 (Existing HA) |
+|--------|----------------|-------------------|----------------------|
+| Wallbox (Modbus TCP) | — (needs Modbus RTU via RS485) | ✓ Modbus TCP or EVCC OCPP | ✓ Any HA integration |
+| Wallbox (Modbus RTU) | ✓ RS485 + MAX3485 | ✓ RS485 USB dongle | ✓ RS485 USB dongle |
+| Wallbox (OCPP) | — | ✓ EVCC as OCPP client | ✓ EVCC add-on |
+| PV Inverter (Modbus) | ✓ (limited to 1-2 devices) | ✓ Full Modbus TCP | ✓ Any HA integration |
+| Battery BMS | — | ✓ Modbus or REST | ✓ Any HA integration |
+| Smart Plug (Shelly) | ✓ Shelly local HTTP API | ✓ Shelly local HTTP API | ✓ Shelly integration |
+| Smart Plug (MQTT) | ✓ ESPHome native | ✓ Node-RED / Python | ✓ HA MQTT integration |
 
 ---
 
@@ -303,69 +434,125 @@ input_number:
     step: 0.1
 ```
 
-### Phase E: Control Integration
+### Phase E: Control Integration via Local Controller
 
-#### E.1 Wallbox/EV Charger Integration
+> **Architecture:** All device integration (wallbox, PV, battery, smart plugs) happens on the **per-household local controller**, not on the central server. The local controller publishes normalized data to central MQTT and subscribes to control commands. See Section 3.2 for the full topic hierarchy and tier options.
 
-1. **Supported Protocols**
-   - **OCPP** (via EVCC or custom integration)
-   - Modbus TCP (for compatible wallboxes)
-   - Manufacturer REST APIs
+#### E.1 Integration Architecture
 
-2. **Integration Methods**
-   - **EVCC Add-on** (recommended for OCPP) — HA add-on, 6K+ stars, browser config since v0.300
-   - Home Assistant wallbox integrations
-   - Custom MQTT integration
+```
+┌─ HOUSEHOLD ────────────────────────────────────────┐
+│                                                     │
+│  Wallbox ──Modbus──┐                                │
+│  PV Inverter ─Modbus┤──→ Local Controller ──MQTT──→ Central HA
+│  Battery ───Modbus──┤       (Tier 1/2/3)    (TLS)   │
+│  Smart Plug ──WiFi──┘                                │
+│                                                     │
+│  Local Controller handles:                          │
+│  • All protocol translation (Modbus, OCPP, REST)    │
+│  • All local device discovery and polling            │
+│  • Data normalization to MQTT topic schema           │
+│  • Local execution of shed/control commands           │
+│  • Data buffering during network outages              │
+└─────────────────────────────────────────────────────┘
+```
 
-3. **OCPP Compatibility Warning**
+#### E.2 Wallbox/EV Charger Integration (on Local Controller)
+
+1. **Supported Protocols per Tier**
+
+   | Protocol | Tier 1 (ESP32) | Tier 2 (RPi Zero) | Tier 3 (Existing HA) |
+   |----------|----------------|-------------------|----------------------|
+   | Modbus RTU (RS485) | ✓ (MAX3485) | ✓ (USB dongle) | ✓ (USB dongle) |
+   | Modbus TCP | — | ✓ | ✓ |
+   | OCPP 1.6/2.0 | — | ✓ (via EVCC) | ✓ (via EVCC add-on) |
+   | Manufacturer REST | — | ✓ (curl/Python) | ✓ (HA integration) |
+
+2. **Data Published to Central MQTT**
+
+   | Topic | Payload | Interval |
+   |-------|---------|----------|
+   | `lem-netz/house/<id>/sensor/wallbox/power` | `{"value": 4500, "unit": "W"}` | Every 15s or on change |
+   | `lem-netz/house/<id>/sensor/wallbox/energy` | `{"value": 12.5, "unit": "kWh"}` | Every 5 min |
+   | `lem-netz/house/<id>/sensor/wallbox/status` | `{"state": "charging", "phase_count": 3}` | On change |
+   | `lem-netz/house/<id>/status/shed` | `{"status": "executed", "loads_shed": ["wallbox"]}` | On watchdog command |
+
+3. **Commands Received from Central MQTT**
+
+   | Command Topic | Payload | Effect |
+   |--------------|---------|--------|
+   | `lem-netz/house/<id>/command/max_current` | `{"value": 10, "unit": "A"}` | Limit wallbox charging current |
+   | `lem-netz/house/<id>/command/charge_enable` | `{"enable": false}` | Stop/start charging |
+   | `lem-netz/house/<id>/command/shed` | `{"reason": "transformer_overload"}` | Shed wallbox immediately |
+
+4. **OCPP Compatibility Warning**
    - Some wallbox manufacturers have OCPP implementation issues:
      - **Wallbox Pulsar Plus/Pro**: Known OCPP disconnects every few days requiring restart of both wallbox and EVCC; firmware 6.7.x introduced daily forced reboots that break OCPP connections
      - **General**: Prefer local Modbus/REST APIs over OCPP when available
      - **EVCC** is actively developed (240+ manufacturers supported) — test compatibility before deployment
+   - On Tier 2, run EVCC locally on the RPi Zero as an OCPP client
+   - On Tier 3, use the EVCC HA add-on in the local HA instance
    - See [EVCC GitHub Issues](https://github.com/evcc-io/evcc/issues) for known problems
 
-4. **Configuration**
-   - Add wallbox to Home Assistant
-   - Configure charging limits
-   - Set up automation for price-based charging
+#### E.3 Smart Plug/Switch Integration (on Local Controller)
 
-#### E.2 Smart Plug/Switch Integration
+All smart plug integration runs on the local controller, which reads power data and relays on/off commands:
 
-1. **Supported Devices**
-   - Shelly (via Shelly integration)
-   - Tuya/Tuya Smart Life (via HA integration)
-   - Any MQTT-controlled smart plug
+1. **Per Tier**
 
-2. **Configuration**
-   - Add devices to Home Assistant
-   - Configure power measurement (if available)
-   - Set up control entities
+   | Device | Tier 1 (ESP32) | Tier 2 (RPi Zero) | Tier 3 (Existing HA) |
+   |--------|----------------|-------------------|----------------------|
+   | Shelly Plus Plug S | HTTP GET local IP for power | HTTP API via requests/curl | Shelly HA integration |
+   | Shelly Pro 4PM | HTTP GET for each channel | HTTP API | Shelly HA integration |
+   | Generic MQTT plug | ESPHome output component | Python MQTT client | HA MQTT integration |
+   | Tuya Smart Plug | — | Tuya API (if local) | Tuya HA integration |
 
-#### E.3 PV System Integration
+2. **Data Flow**
+   - **Sensor data**: Local controller polls Shelly at `http://<shelly-ip>/rpc/Switch.GetStatus` → publishes to `lem-netz/house/<id>/sensor/plug/<name>/power`
+   - **Control**: Central publishes `lem-netz/house/<id>/command/plug/<name>/set` → local controller sends HTTP POST to Shelly → confirms via `lem-netz/house/<id>/status/plug/<name>`
 
-1. **Supported Inverters**
-   - SolarEdge (Modbus TCP)
-   - SMA (Sunny Home Manager)
-   - Kostal (Modbus TCP)
-   - Victron (Venus OS)
+3. **Configuration**
+   - Assign static IP to each smart plug via DHCP reservation
+   - Register plug MAC address in local controller config
+   - Tag each plug with `transformer_protected: true` in controller config for watchdog priority
 
-2. **Data Points**
-   - Current PV production (W)
-   - Daily energy (kWh)
-   - Total energy (kWh)
+#### E.4 PV System Integration (on Local Controller)
 
-#### E.4 Battery Storage Integration
+1. **Per Tier**
 
-1. **Supported Systems**
-   - BYD (via Modbus)
-   - Ford (via API)
-   - Tesla Powerwall (via API)
-   - Generic Modbus batteries
+   | Inverter | Tier 1 (ESP32) | Tier 2 (RPi Zero) | Tier 3 (Existing HA) |
+   |----------|----------------|-------------------|----------------------|
+   | SolarEdge (Modbus TCP) | — | ✓ modbus_read.py | ✓ HA SolarEdge integration |
+   | SMA (Modbus TCP) | — | ✓ SMA Modbus client | ✓ HA SMA integration |
+   | Kostal (Modbus TCP) | ✓ (RS485 to Modbus RTU) | ✓ Modbus RTU or TCP | ✓ HA Kostal integration |
+   | Victron (Venus OS) | — | ✓ REST API on Venus | ✓ HA Victron integration |
 
-2. **Data & Control**
-   - State of Charge (SoC) %
-   - Charge/Discharge power (W)
-   - Start/Stop control
+2. **Data Published**
+
+   | Topic | Payload |
+   |-------|---------|
+   | `lem-netz/house/<id>/sensor/pv/production` | `{"value": 3200, "unit": "W"}` |
+   | `lem-netz/house/<id>/sensor/pv/daily_yield` | `{"value": 14.2, "unit": "kWh"}` |
+   | `lem-netz/house/<id>/sensor/pv/total_yield` | `{"value": 4520, "unit": "kWh"}` |
+
+#### E.5 Battery Storage Integration (on Local Controller)
+
+1. **Per Tier**
+
+   | System | Tier 1 (ESP32) | Tier 2 (RPi Zero) | Tier 3 (Existing HA) |
+   |--------|----------------|-------------------|----------------------|
+   | BYD (Modbus) | — | ✓ Modbus TCP/RTU | ✓ HA Modbus integration |
+   | Tesla Powerwall | — | ✓ Local Gateway API | ✓ HA Powerwall integration |
+   | FoxESS (Modbus) | — | ✓ Modbus client | ✓ HA Modbus integration |
+   | Generic Modbus BMS | ✓ (simple registers) | ✓ Full register map | ✓ HA Modbus integration |
+
+2. **Data Published**
+
+   | Topic | Payload |
+   |-------|---------|
+   | `lem-netz/house/<id>/sensor/battery/soc` | `{"value": 65, "unit": "%"}` |
+   | `lem-netz/house/<id>/sensor/battery/power` | `{"value": -1500, "unit": "W"}` (negative = charging) |
+   | `lem-netz/house/<id>/sensor/battery/status` | `{"state": "discharging"}` |
 
 ### Phase F: Revenue-Aware Optimization
 
@@ -373,66 +560,197 @@ input_number:
 
 > **IMPLEMENTATION ORDER:** Infrastructure safety MUST be implemented BEFORE economic optimization. The watchdog is the enforcement mechanism.
 
-The virtual transformer YAML sensor from Phase C provides monitoring, but enforcement requires a **physical watchdog** that automatically sheds load:
+The virtual transformer YAML sensor from Phase C provides monitoring. Enforcement uses **MQTT shed commands** to per-household local controllers, which execute the physical load shedding locally.
 
-**Watchdog Implementation:**
+**Architecture:**
+```
+Central HA detects overload ──MQTT──→ lem-netz/house/<id>/command/shed
+                                           │
+                                           ▼
+                                   Local Controller
+                                    (Tier 1/2/3)
+                                           │
+                              ┌────────────┴────────────┐
+                              ▼                         ▼
+                       Wallbox set to 0A          Smart Plug turned off
+                       (Modbus register write)    (HTTP POST /relay/0)
+```
+
+#### F.0.1 Watchdog Command Flow
+
+1. Central HA monitors `sensor.virtual_transformer` (sum of all household power readings)
+2. When threshold exceeded (80%), central HA publishes shed commands via MQTT
+3. Shed order: **non-essential plugs first → wallbox → battery export**
+4. Each local controller acknowledges execution via status topic
+5. Central HA checks acknowledgements — if transformer still overloaded, continues shedding next tier
+6. On recovery (60%), publishes re-enable commands in reverse order
+
+#### F.0.2 Priority Shed Configuration (on Central HA)
+
+Each household registers its devices with a shed priority in central HA's configuration:
+
 ```yaml
-# Watchdog: Automatically disable loads when transformer is over 80%
+# Central HA configuration: Household shed priorities
+lem_netz:
+  households:
+    1:
+      name: "Household 1"
+      devices:
+        - id: wallbox
+          type: ev_charger
+          shed_priority: 2   # shed second
+          max_power: 11000
+        - id: plug_pool_pump
+          type: smart_plug
+          shed_priority: 1   # shed first
+          max_power: 1500
+        - id: plug_heater
+          type: smart_plug
+          shed_priority: 1
+          max_power: 2000
+    2:
+      name: "Household 2"
+      devices:
+        - id: wallbox
+          type: ev_charger
+          shed_priority: 2
+          max_power: 11000
+```
+
+#### F.0.3 Watchdog Automation (Central HA)
+
+```yaml
+# Watchdog: Publish MQTT shed commands when transformer exceeds 80%
 automation:
   - alias: "Transformer Overload Protection"
     trigger:
       - platform: numeric_state
         entity_id: sensor.virtual_transformer
         above: 8000  # 80% of 10kVA transformer
+    mode: single
     action:
-      - service: switch.turn_off
-        entity_id: "{{ states.switch | selectattr('attributes.transformer_protected', 'defined') | selectattr('attributes.transformer_protected', 'eq', true) | map(attribute='entity_id') | list }}"
+      # Step 1: Shed all priority-1 loads (non-essential plugs)
       - service: mqtt.publish
         data:
-          topic: "lem-netz/watchdog/alert"
-          payload: "Transformer at {{ states('sensor.virtual_transformer') | int }}W — loads shed"
-          retain: true
+          topic: "lem-netz/house/1/command/shed"
+          payload: '{"priority": 1, "reason": "transformer_overload", "timestamp": "{{ now() }}"}'
+          qos: 2
+      - service: mqtt.publish
+        data:
+          topic: "lem-netz/house/2/command/shed"
+          payload: '{"priority": 1, "reason": "transformer_overload", "timestamp": "{{ now() }}"}'
+          qos: 2
+      # ... repeat for all households ...
+      
+      # Step 2: Wait 10s for acknowledgement, then check if still overloaded
+      - delay: "00:00:10"
+      
+      # Step 3: If still overloaded, shed priority-2 loads (wallboxes)
+      - if:
+          - condition: numeric_state
+            entity_id: sensor.virtual_transformer
+            above: 8000
+        then:
+          - service: mqtt.publish
+            data:
+              topic: "lem-netz/house/1/command/shed"
+              payload: '{"priority": 2, "reason": "transformer_overload", "timestamp": "{{ now() }}"}'
+              qos: 2
+          - service: mqtt.publish
+            data:
+              topic: "lem-netz/house/2/command/shed"
+              payload: '{"priority": 2, "reason": "transformer_overload", "timestamp": "{{ now() }}"}'
+              qos: 2
+          # ... 
+      
+      # Step 4: Alert
       - service: persistent_notification.create
         data:
           title: "⚠ Transformer Overload"
-          message: "Virtual transformer exceeded 80%. Non-essential loads have been disabled."
+          message: "Virtual transformer exceeded 80%. Shed commands issued to local controllers."
 ```
 
-Mark each controlled device with `transformer_protected: true` so the watchdog targets them:
-```yaml
-switch:
-  - platform: mqtt
-    name: "Household 1 Wallbox"
-    command_topic: "lem-netz/house1/wallbox/set"
-    state_topic: "lem-netz/house1/wallbox/state"
-    qos: 2
-    device_class: outlet
-    icon: mdi:ev-station
-  - platform: mqtt
-    name: "Household 2 Smart Plug"
-    command_topic: "lem-netz/house2/plug/set"
-    state_topic: "lem-netz/house2/plug/state"
-    qos: 2
-    device_class: outlet
-    icon: mdi:power-socket-de
+**Load Recovery (when transformer drops below 60%):**
 
-input_boolean:
-  transformer_protection_armed:
-    name: "Transformer Protection"
-    initial: on
-```
-
-On recovery (load drops below 60%), the watchdog re-enables loads:
 ```yaml
   - alias: "Transformer Load Recovery"
     trigger:
       - platform: numeric_state
         entity_id: sensor.virtual_transformer
         below: 6000  # 60% — hysteresis prevents oscillation
+    mode: single
     action:
-      - service: switch.turn_on
-        entity_id: "{{ states.switch | selectattr('attributes.transformer_protected', 'defined') | selectattr('attributes.transformer_protected', 'eq', true) | map(attribute='entity_id') | list }}"
+      # Re-enable loads in reverse priority order
+      - service: mqtt.publish
+        data:
+          topic: "lem-netz/house/1/command/restore"
+          payload: '{"reason": "load_recovered", "timestamp": "{{ now() }}"}'
+          qos: 2
+      - service: mqtt.publish
+        data:
+          topic: "lem-netz/house/2/command/restore"
+          payload: '{"reason": "load_recovered", "timestamp": "{{ now() }}"}'
+          qos: 2
+      # ...
 ```
+
+#### F.0.4 Local Controller Shed Handler (on each local controller)
+
+The local controller subscribes to `lem-netz/house/<id>/command/#` and executes shedding locally:
+
+**Tier 1 (ESP32/ESPHome) example:**
+```yaml
+# ESPHome: MQTT shed command handler
+api:
+  on_mqtt_message:
+    - topic: lem-netz/house/1/command/shed
+      then:
+        - lambda: |-
+            // Parse JSON payload, extract priority
+            // Priority 1: turn off smart plugs
+            // Priority 2: set wallbox current to 0A
+            if (x.contains("priority\": 1")) {
+              id(smart_plug_1).turn_off();
+            } else if (x.contains("priority\": 2")) {
+              // Write 0 to wallbox Modbus register 1000
+              id(wallbox_modbus).write_register(1000, 0);
+            }
+        - mqtt.publish:
+            topic: lem-netz/house/1/status/shed
+            payload: '{"status": "executed", "priority": 1, "loads_shed": ["smart_plug_1"]}'
+            qos: 2
+```
+
+**Tier 2 (RPi Zero / Python agent) example:**
+```python
+# Python MQTT callback on local controller
+def on_shed_command(client, userdata, msg):
+    payload = json.loads(msg.payload)
+    priority = payload["priority"]
+    
+    if priority >= 1:
+        # Shed non-essential plugs via HTTP
+        requests.get("http://192.168.1.50/rpc/Switch.Set?id=0&on=false")
+    
+    if priority >= 2:
+        # Set wallbox charge current to 0A via Modbus
+        modbus_client.write_register(1000, 0, unit=1)
+    
+    # Acknowledge
+    client.publish("lem-netz/house/1/status/shed",
+        json.dumps({"status": "executed", "priority": priority}))
+
+client.subscribe("lem-netz/house/1/command/#")
+client.on_message = on_shed_command
+```
+
+#### F.0.5 Watchdog Failure Detection
+
+If a local controller does not acknowledge a shed command within 30 seconds:
+- Central HA marks the household as "unresponsive"
+- Retries via LoRaWAN downlink (if available) as fallback
+- Logs warning: "Household X unresponsive — check local controller connectivity"
+- The virtual transformer sensor continues monitoring; if still overloaded, remaining responsive households receive additional shed commands
 
 #### F.1 Recommended Optimization Tools (Phase 2)
 
@@ -556,7 +874,23 @@ Each component was evaluated against the following criteria:
 
 **Note:** Smart plugs must support **local control** (MQTT or REST API) without cloud dependency to comply with FR06 (offline capability). Shelly devices meet this requirement with their local HTTP/MQTT API. Avoid cloud-only smart plugs.
 
-### 5.5 Optimization Software (Phase 2)
+### 5.5 Local Controller Hardware (Phase 1+2)
+
+| Product | Price (incl. VAT) | German Shop | Use Case |
+|---------|-------------------|-------------|----------|
+| **ESP32 DevKit C** | €12-18 | [reichelt.de](https://www.reichelt.de) · [amazon.de](https://www.amazon.de) | Tier 1 controller: WiFi + Bluetooth, 2 UARTs for Modbus RS485, runs ESPHome, low power |
+| **MAX3485 RS485 Module** | €3-5 | [reichelt.de](https://www.reichelt.de) · [iot-shop.de](https://iot-shop.de) | Required for Tier 1 ESP32 Modbus RTU connection to wallbox/inverter |
+| **USB RS485 Adapter** | €8-12 | [reichelt.de](https://www.reichelt.de) | Required for Tier 2 RPi Zero Modbus RTU connection |
+| **Raspberry Pi Zero 2W** | €18-22 | [reichelt.de](https://www.reichelt.de) · [raspberrypi.com](https://www.raspberrypi.com) | Tier 2 controller: quad-core, WiFi, 512MB RAM, runs Python/Node-RED agent |
+| **RPi Zero 2W Case + PSU + SD** | €15-20 | [reichelt.de](https://www.reichelt.de) | Accessories for Tier 2 controller setup |
+
+| Tier | Total Hardware Cost (per household) |
+|------|-------------------------------------|
+| **Tier 1** (ESP32 + RS485 + PSU) | **~€20-25** |
+| **Tier 2** (RPi Zero 2W kit + RS485) | **~€45-55** |
+| **Tier 3** (Existing HA) | **~€0** |
+
+### 5.6 Optimization Software (Phase 2)
 
 | Software | License | Integration | Key Features |
 |----------|---------|-------------|--------------|
@@ -567,7 +901,7 @@ Each component was evaluated against the following criteria:
 
 **Recommendation:** Start with HAEO for core optimization. Add AkkudoktorEOS for German price predictions. Use EVCC for wallbox OCPP control.
 
-### 5.6 Price Comparison Summary
+### 5.7 Price Comparison Summary
 
 | Component | Recommended Product | Price (incl. VAT) | Quantity | Total |
 |-----------|-------------------|-------------------|----------|-------|
@@ -577,9 +911,13 @@ Each component was evaluated against the following criteria:
 | **Central Total** | | | | **€733** |
 | | | | | |
 | Sensor (per household) | IMST iOKE868 + USB PSU | €119 + €7.50 | 1 | **€126.50** |
+| Local Controller (Tier 1) | ESP32 + RS485 + PSU | €20-25 | 1 | **€20-25** |
+| Local Controller (Tier 2) | RPi Zero 2W kit + RS485 | €45-55 | 1 | **€45-55** |
 | Smart Plug (Phase 2, optional) | Shelly Plus Plug S | €18-21 | 1 | **€18-21** |
-| **Per Household (Phase 1 only)** | | | | **~€127** |
-| **Per Household (cumulative Phase 1+2)** | | | | **~€148** |
+| **Per Household — Tier 1 (Phase 1)** | | | | **~€147-152** |
+| **Per Household — Tier 2 (Phase 1)** | | | | **~€172-182** |
+| **Per Household — cumul. Tier 1 (Phase 1+2)** | | | | **~€166-173** |
+| **Per Household — cumul. Tier 2 (Phase 1+2)** | | | | **~€191-203** |
 
 **Central cost exceeds the €300 target.** This is driven by the UG67 gateway (€588). Options to reduce:
 - Use Dragino DLOS8N (€225) instead of UG67 → central total ~€370, but risks at scale
@@ -603,11 +941,15 @@ Each component was evaluated against the following criteria:
 | | | | |
 | Sensor per household | €100-150 | €119 (iOKE868) | ✓ Within budget |
 | Power supply (optional) | €0-20 | €7.50 (USB PSU) | ✓ Within budget |
-| **Per Household (Phase 1)** | **≤ €200** | **~€127** | ✓ Within budget |
+| Local Controller (Tier 1) | €15-25 | €20-25 (ESP32) | ✓ Within budget |
+| Local Controller (Tier 2) | €30-60 | €45-55 (RPi Zero 2W) | ✓ Within budget |
+| **Per Household — Tier 1 (Phase 1)** | **≤ €200** | **~€147-152** | ✓ Within budget |
+| **Per Household — Tier 2 (Phase 1)** | **≤ €200** | **~€172-182** | ✓ Within budget |
 | Smart Plug (Phase 2, optional) | €0-50 | €18-21 | ✓ Within budget |
-| **Per Household (Total with Phase 2)** | **≤ €350** | **~€155** | ✓ Within budget |
+| **Per Household — Tier 1 (cumul. Phase 1+2)** | **≤ €350** | **~€166-173** | ✓ Within budget |
+| **Per Household — Tier 2 (cumul. Phase 1+2)** | **≤ €350** | **~€191-203** | ✓ Within budget |
 
-**Note:** Central total exceeds the €300 target primarily due to the Milesight UG67 gateway (€588). See Section 5.6 for cost reduction options.
+**Note:** Central total exceeds the €300 target primarily due to the Milesight UG67 gateway (€588). See Section 5.7 for cost reduction options.
 
 ### 6.2 Budget Tracking - Phase 2
 
@@ -626,6 +968,8 @@ Each component was evaluated against the following criteria:
 - Bulk purchase sensors for volume discount
 - Leverage existing devices (wallboxes, PV) already owned by households
 - Use open-source software (EVCC, Home Assistant) to avoid licensing costs
+- Choose the right local controller tier: Tier 1 (ESP32) for basic load shedding; Tier 2 (RPi) for full PV+battery+wallbox integration
+- Deploy Tier 3 (existing HA) whenever a household already runs Home Assistant — zero additional hardware cost
 
 ---
 
@@ -653,6 +997,9 @@ Each component was evaluated against the following criteria:
 | Intermittent data | Weak wireless signal | Add intermediate sensor or move gateway |
 | Gateway offline | Network issue | Check Ethernet/PoE connection |
 | No MQTT data | Wrong MQTT config | Verify broker IP and port in gateway |
+| Local controller offline | Power or WiFi issue | Check USB power and WiFi connection at household; verify MQTT broker address |
+| Local controller not publishing | Wrong topic prefix | Verify household ID in config matches `lem-netz/house/<id>/...` |
+| No Modbus data from wallbox | RS485 wiring issue | Check A/B polarity and termination resistors on RS485 bus |
 
 ### 8.2 Common Issues - Phase 2
 
@@ -663,16 +1010,20 @@ Each component was evaluated against the following criteria:
 | Price data not updating | API rate limit | Check integration logs; EPEX API may throttle |
 | Optimization causing loss | Wrong household config | Verify tariff type setting in HAEO/HA |
 | §14a not working | No Smart Meter (iMSys) | Requires iMSys installation for Module 3 |
-| Watchdog not firing | Entity ID mismatch | Verify all switches have `transformer_protected: true` |
-| False positive overload | Sensor drift | Check virtual transformer calculation — sum of all households
+| Watchdog not firing | MQTT topic mismatch | Verify shed command topic matches local controller subscription |
+| Watchdog shed not executed | Local controller offline | Check heartbeat on `lem-netz/house/<id>/heartbeat`; if stale, check controller power/WiFi |
+| False positive overload | Sensor drift | Check virtual transformer calculation — sum of all households |
+| Shed acknowledgement missing | Local controller crashed | Restart controller; check watchdog failure detection in Section F.0.5 |
 
 ### 8.3 Diagnostics
 
 1. **Check sensor LED status** - Should indicate join and transmit
 2. **Check gateway web interface** - Shows joined devices and uplink count
-3. **Check MQTT topic** - Subscribe to `#` for all messages
-4. **Check Home Assistant logs** - Settings → System → Logs
-5. **Check price integration** - Verify EPEX/provider connectivity
+3. **Check MQTT topic** - Subscribe to `lem-netz/#` for all LEM messages
+4. **Check local controller heartbeat** - Subscribe to `lem-netz/house/+/heartbeat` to verify all controllers are alive
+5. **Check wallbox Modbus** - On local controller, run Modbus scanner to verify device responds
+6. **Check Home Assistant logs** - Settings → System → Logs
+7. **Check price integration** - Verify EPEX/provider connectivity
 
 ---
 
@@ -732,5 +1083,5 @@ Each component was evaluated against the following criteria:
 
 *This document provides implementation guidance for Phase 1 and Phase 2. It supports the requirements specification by showing how to achieve the defined goals while maintaining economic fairness across all household types.*
 
-**Document Version:** 3.2
+**Document Version:** 3.3
 **Last Updated:** May 2026
