@@ -15,6 +15,28 @@ The decentralized Local Energy Management System (LEM-Netz) enables neighborhood
 - Low entry barriers and easy extensibility.
 - Ensuring data sovereignty of participants.
 
+### 2a. Priority Hierarchy
+
+> **Infrastructure Safety > Economic Fairness**
+
+1. **Infrastructure Safety (highest priority)**: The transformer and line limits are non-negotiable. When a conflict arises, all optimization is suspended to protect grid infrastructure.
+2. **Economic Fairness**: Optimization must not financially disadvantage any household type. Every household must break even or benefit.
+3. **If these conflict, infrastructure safety always wins.**
+
+### 2b. Supported Household Types
+
+| Type | Pricing Model | Optimization Goal |
+|------|---------------|-------------------|
+| No PV | Fixed tariff | Minimize consumption cost |
+| PV only (EEG) | Fixed feed-in | Maximize self-consumption |
+| PV only (Dynamic) | EPEX Spot | Shift consumption to low-price periods |
+| PV + Battery | Dynamic | Arbitrage (charge low, discharge high) |
+| Battery only | Dynamic | Arbitrage (charge cheap, discharge expensive) |
+| Heat pump | §14a network charges | Shift to low-tariff periods |
+| EV + Wallbox | Dynamic | Coordinate charging with price signals |
+| EV + Wallbox + Heat pump + Battery | Mixed | Full optimization across all assets |
+| Balcony solar (Balkonkraftwerk) | Self-consumption | Maximize generation, curtail if grid export limit exceeded |
+
 ### 3. Functional Requirements (FR)
 
 **FR-01 Grid Infrastructure Protection (highest priority)**  
@@ -32,8 +54,14 @@ Support for coordinating local surplus and demand within applicable grid limits 
 **FR-05 Simple Onboarding**  
 New participants must be able to integrate into the system without extensive administrative effort.
 
-**FR-06 Support for Grid-Serving Control**  
-Provision of mechanisms for grid-oriented adjustment of controllable consumption devices according to § 14a EnWG.
+**FR-06 Economic Fairness**  
+The optimization logic MUST NOT apply strategies that result in financial loss to any household compared to their baseline pricing model. Each household must have visibility into the financial impact of optimization decisions and the ability to opt out of control for their devices.
+
+**FR-07 Support for Grid-Serving Control**  
+Provision of mechanisms for grid-oriented adjustment of controllable consumption devices according to § 14a EnWG, supporting:
+- Module 1: Flat reduction of network charges
+- Module 2: Percentage-based reduction
+- Module 3: Time-variable network charges
 
 ### 4. Non-Functional Requirements
 
@@ -44,37 +72,19 @@ Provision of mechanisms for grid-oriented adjustment of controllable consumption
 - **Simplicity**: Minimization of administrative and technical complexity.
 - **Interoperability**: Compatibility with existing and future metering and control infrastructures.
 
-### 5. Use-Case Diagrams (Mermaid)
-
-#### Phase 1 — Data Collection
+### 5. System Overview
 
 ```mermaid
-flowchart LR
-    Participant["**Participant**\n(Household / Prosumer)"]:::actor
-    DSO["**Grid Operator**\n(DSO)"]:::dso
-
-    Participant --> UC01["Determine & broadcast\ngrid limit"]
-    Participant --> UC02["Record consumption &\ngeneration data"]
-    Participant --> UC05["Simple onboarding"]
-
-    DSO --> UC01
-```
-
-#### Phase 2 — Control
-
-```mermaid
-flowchart LR
-    Participant["**Participant**\n(Household / Prosumer)"]:::actor
-    DSO["**Grid Operator**\n(DSO)"]:::dso
-
-    Participant --> UC03["Offer / request\nflexibility"]
-    Participant --> UC04["Local coordination &\nload shifting"]
-    Participant --> UC06["Perform grid-serving\ncontrol"]
-
-    DSO --> UC06
-
-    classDef actor fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#000
-    classDef dso fill:#e8f5e9,stroke:#388e3c,stroke-width:2px,color:#000
+mindmap
+  root((LEM-Netz))
+    Phase 1 - Data Collection
+      Determine & broadcast grid limit
+      Record consumption & generation data
+      Simple onboarding
+    Phase 2 - Control
+      Offer / request flexibility
+      Local coordination & load shifting
+      Grid-serving control §14a
 ```
 
 ### 6. Detailed Use Cases
@@ -88,7 +98,7 @@ flowchart LR
 #### Phase 2 — Control
 
 - **UC-03 Offer / request flexibility**: Participants advertise available flexibility or signal demand to the local coordinator for load shifting.
-- **UC-04 Local coordination & load shifting**: Coordination of flexibility to optimize self-consumption and grid-serving behavior.
+- **UC-04 Local coordination & load shifting**: Coordination of flexibility to optimize self-consumption and grid-serving behavior. When grid limits are breached, controllable loads are shed in this priority order: EV wallbox → battery charging → heat pump. Balcony solar (Balkonkraftwerk) systems are curtailed if reverse power flow limits are exceeded.
 - **UC-06 Grid-serving control**: Support for § 14a-compliant control of controllable consumption devices.
 
 ### 7. Sources
