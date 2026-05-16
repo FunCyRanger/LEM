@@ -66,7 +66,15 @@ Provision of mechanisms for grid-oriented adjustment of controllable consumption
 ### 4. Non-Functional Requirements
 
 - **Robustness**: The system must be able to continue operating with reduced functionality during partial failures. The grid protection function has absolute priority.
-- **Economic Efficiency**: Low investment and operating costs.
+- **Economic Efficiency**: Low investment and no recurring costs — see §4.1.
+
+### 4.1 Cost Requirements
+
+| Category | Target | Notes |
+|----------|--------|-------|
+| Per-household hardware (one-time) | €100–200 | Bridge device, sensors, installation materials |
+| Central infrastructure (one-time) | ≤ €300 | Server + gateway, shared across the community |
+| Recurring costs | €0 | No subscriptions, no annual fees — all software is open-source, EPEX Spot data is free |
 - **Data Sovereignty and Privacy**: Local data processing in compliance with GDPR.
 - **Scalability**: Support for a variable number of households in a neighborhood.
 - **Simplicity**: Minimization of administrative and technical complexity.

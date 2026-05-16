@@ -7,9 +7,10 @@ Documentation-only repository (German decentralized energy management). Both pha
 | File | Role |
 |------|------|
 | `README.md` | Overview, household types, phases, cost targets |
-| `LEM-Requirements.md` | **Current** simplified requirements and use cases |
-| `Requirements_Specification_LEM-Netz.md` | ⚠️ Deprecated — superseded by `LEM-Requirements.md` |
-| `LEM-Netz_Technical_Concept.md` | ⚠️ Deprecated — superseded by `LEM-Requirements.md` |
+| `LEM-Requirements.md` | Requirements and use cases |
+| `Technical_Concept.md` | **Current** technical concept |
+| `Concept_Brainstorming.md` | Architecture exploration and decision matrix |
+| `archive/` | Superseded documents |
 
 ## No Build / No Automation
 
