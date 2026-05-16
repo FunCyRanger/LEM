@@ -1,7 +1,5 @@
 **Anforderungsanalyse und Use-Case-Dokumentation: Dezentrales LEM-Netz (vereinfachte Version)**
 
-**Version:** 1.3  
-**Datum:** 16. Mai 2026  
 **Status:** Entwurf  
 
 ### 1. Einleitung und Zweck
@@ -142,7 +140,3 @@ Das dezentrale LEM-Netz stellt einen pragmatischen und sinnvollen Ansatz dar. Es
 
 **Quellenverzeichnis (Two-Pager)**  
 Siehe detailliertes Quellenverzeichnis in der Anforderungsanalyse (Abschnitt 7).
-
----
-
-Dieses Dokument ist direkt für GitHub oder Präsentationszwecke geeignet. Alle Links wurden auf Funktionalität und korrekten Inhalt geprüft. Bei weiteren Anpassungen stehe ich gerne zur Verfügung.
