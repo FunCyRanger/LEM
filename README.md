@@ -47,9 +47,10 @@ The system NEVER allows optimization strategies that could overload the local tr
 
 ## Documentation
 
-- [Requirements Specification](Requirements_Specification_LEM-Netz.md) - Functional and non-functional requirements
-- [Technical Concept](LEM-Netz_Technical_Concept.md) - Implementation guide
-- [AGENTS.md](AGENTS.md) - Developer notes
+- **[LEM-Requirements.md](LEM-Requirements.md)** — Current simplified requirements and use cases
+- [Requirements_Specification_LEM-Netz.md](Requirements_Specification_LEM-Netz.md) — ⚠️ Deprecated
+- [LEM-Netz_Technical_Concept.md](LEM-Netz_Technical_Concept.md) — ⚠️ Deprecated
+- [AGENTS.md](AGENTS.md) — Developer notes
 
 ## Tech Stack (Reference)
 

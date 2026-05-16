@@ -7,10 +7,9 @@ Documentation-only repository (German decentralized energy management). Both pha
 | File | Role |
 |------|------|
 | `README.md` | Overview, household types, phases, cost targets |
-| `Requirements_Specification_LEM-Netz.md` | Functional/non-functional requirements v3.0 (Phase 1+2) |
-| `LEM-Netz_Technical_Concept.md` | Implementation guide v3.4 — components, MQTT topics, architecture |
-
-If the two specs conflict, trust the Technical Concept (v3.4, implementation-focused, more recent).
+| `LEM-Requirements.md` | **Current** simplified requirements and use cases |
+| `Requirements_Specification_LEM-Netz.md` | ⚠️ Deprecated — superseded by `LEM-Requirements.md` |
+| `LEM-Netz_Technical_Concept.md` | ⚠️ Deprecated — superseded by `LEM-Requirements.md` |
 
 ## No Build / No Automation
 

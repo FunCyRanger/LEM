@@ -3,8 +3,11 @@
 ## Decentralized Energy Management System for Neighborhood Communities
 
 **Version:** 3.0
-**Status:** Requirements Draft
+**Status:** Requirements Draft — **DEPRECATED**
 **Scope:** Phase 1 + Phase 2
+
+> **DEPRECATED** — This document is superseded by [LEM-Requirements.md](LEM-Requirements.md),
+> the current simplified requirements specification.
 
 ---
 

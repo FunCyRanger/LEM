@@ -3,8 +3,11 @@
 ## Implementation Guide for Phase 1 + Phase 2
 
 **Version:** 4.0
-**Status:** Review (incorporating open-source optimization recommendations)
+**Status:** Review — **DEPRECATED**
 **Purpose:** Translate Requirements into Implementation
+
+> **DEPRECATED** — This document is superseded by [LEM-Requirements.md](LEM-Requirements.md),
+> the current simplified requirements specification.
 
 ---
 
