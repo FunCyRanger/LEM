@@ -44,49 +44,51 @@ Provision of mechanisms for grid-oriented adjustment of controllable consumption
 - **Simplicity**: Minimization of administrative and technical complexity.
 - **Interoperability**: Compatibility with existing and future metering and control infrastructures.
 
-### 5. Use-Case Diagram (Mermaid)
+### 5. Use-Case Diagrams (Mermaid)
+
+#### Phase 1 — Data Collection
 
 ```mermaid
-flowchart TD
-    subgraph "Decentralized LEM System"
-        direction TB
-        UC01["Determine & broadcast\ngrid limit"]
-        UC02["Record consumption &\ngeneration data"]
-        UC03["Offer / request\nflexibility"]
-        UC04["Local coordination &\nload shifting"]
-        UC05["Simple onboarding"]
-        UC06["Perform grid-serving\ncontrol"]
-    end
-
+flowchart LR
     Participant["**Participant**\n(Household / Prosumer)"]:::actor
     DSO["**Grid Operator**\n(DSO)"]:::dso
 
-    Participant --> UC01
-    Participant --> UC02
-    Participant --> UC03
-    Participant --> UC04
-    Participant --> UC05
-    Participant --> UC06
+    Participant --> UC01["Determine & broadcast\ngrid limit"]
+    Participant --> UC02["Record consumption &\ngeneration data"]
+    Participant --> UC05["Simple onboarding"]
 
     DSO --> UC01
-    DSO --> UC06
+```
 
-    UC03 -.->|includes| UC04
-    UC01 -.->|constraint:\nhighest priority| UC03
-    UC01 -.->|constraint| UC04
-    UC01 -.->|constraint| UC06
+#### Phase 2 — Control
+
+```mermaid
+flowchart LR
+    Participant["**Participant**\n(Household / Prosumer)"]:::actor
+    DSO["**Grid Operator**\n(DSO)"]:::dso
+
+    Participant --> UC03["Offer / request\nflexibility"]
+    Participant --> UC04["Local coordination &\nload shifting"]
+    Participant --> UC06["Perform grid-serving\ncontrol"]
+
+    DSO --> UC06
 
     classDef actor fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#000
     classDef dso fill:#e8f5e9,stroke:#388e3c,stroke-width:2px,color:#000
 ```
 
-### 6. Detailed Use Cases (Core)
+### 6. Detailed Use Cases
+
+#### Phase 1 — Data Collection
 
 - **UC-01 Determine & broadcast grid limit**: Periodic determination and distribution of the binding grid limit.
 - **UC-02 Record consumption & generation data**: Provision of timely measurement values through suitable metering devices.
+- **UC-05 Simple onboarding**: New participants can register via a self-service process with minimal configuration and are automatically recognized by the system.
+
+#### Phase 2 — Control
+
 - **UC-03 Offer / request flexibility**: Participants advertise available flexibility or signal demand to the local coordinator for load shifting.
 - **UC-04 Local coordination & load shifting**: Coordination of flexibility to optimize self-consumption and grid-serving behavior.
-- **UC-05 Simple onboarding**: New participants can register via a self-service process with minimal configuration and are automatically recognized by the system.
 - **UC-06 Grid-serving control**: Support for § 14a-compliant control of controllable consumption devices.
 
 ### 7. Sources
