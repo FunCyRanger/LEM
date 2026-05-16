@@ -71,10 +71,10 @@ flowchart TD
     DSO --> UC01
     DSO --> UC06
 
-    UC03 -.->|<<include>>| UC04
-    UC01 -.->|<<constraint>>\n(highest priority)| UC03
-    UC01 -.->|<<constraint>>| UC04
-    UC01 -.->|<<constraint>>| UC06
+    UC03 -.->|includes| UC04
+    UC01 -.->|constraint:\nhighest priority| UC03
+    UC01 -.->|constraint| UC04
+    UC01 -.->|constraint| UC06
 
     classDef actor fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#000
     classDef dso fill:#e8f5e9,stroke:#388e3c,stroke-width:2px,color:#000
